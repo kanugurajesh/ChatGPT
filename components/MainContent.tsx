@@ -3,10 +3,18 @@
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ChevronDown, Mic } from "lucide-react"
+import { cn } from "@/lib/utils"
 
-export function MainContent() {
+interface MainContentProps {
+  isNavExpanded: boolean
+}
+
+export function MainContent({ isNavExpanded }: MainContentProps) {
   return (
-    <div className="flex-1 flex flex-col">
+    <div className={cn(
+      "flex-1 flex flex-col transition-all duration-300 ease-out",
+      isNavExpanded ? "ml-0" : "ml-0"
+    )}>
       {/* Top Header */}
       <header className="flex items-center justify-center px-6 py-4 relative">
         <div className="absolute left-6 flex items-center gap-2">
@@ -61,6 +69,14 @@ export function MainContent() {
           </div>
         </div>
       </div>
+
+      {/* Overlay when nav is expanded */}
+      {isNavExpanded && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-25 z-30"
+          style={{ left: '240px' }}
+        />
+      )}
     </div>
   )
 }

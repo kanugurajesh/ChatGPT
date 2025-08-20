@@ -3,37 +3,30 @@
 import { useState } from "react"
 import { LeftNavigation } from "@/components/LeftNavigation"
 import { MainContent } from "@/components/MainContent"
-import { ChatSidebar } from "@/components/ChatSidebar"
 
 export default function ChatGPTClone() {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [navExpanded, setNavExpanded] = useState(false)
 
-  const toggleSidebar = () => {
-    setSidebarOpen(!sidebarOpen)
+  const toggleNavigation = () => {
+    setNavExpanded(!navExpanded)
   }
 
-  const closeSidebar = () => {
-    setSidebarOpen(false)
+  const closeNavigation = () => {
+    setNavExpanded(false)
   }
 
   return (
-    <div className="flex h-screen bg-[#212121] text-white relative">
+    <div className="flex h-screen bg-[#212121] text-white relative overflow-hidden">
       {/* Left Navigation */}
-      <LeftNavigation onSidebarToggle={toggleSidebar} />
-
-      {/* Chat Sidebar */}
-      <ChatSidebar isOpen={sidebarOpen} onClose={closeSidebar} />
+      <LeftNavigation 
+        isExpanded={navExpanded} 
+        onToggle={toggleNavigation}
+        onClose={closeNavigation}
+      />
 
       {/* Main Content */}
-      <MainContent />
+      <MainContent isNavExpanded={navExpanded} />
 
-      {/* Overlay for mobile/small screens */}
-      {sidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
-          onClick={closeSidebar}
-        />
-      )}
     </div>
   )
 }
