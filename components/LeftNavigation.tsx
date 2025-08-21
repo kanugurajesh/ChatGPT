@@ -1,14 +1,17 @@
 "use client"
 
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Edit, Search, Sparkles, User, X, ChevronDown } from "lucide-react"
+import { Edit, Search, User, X, ChevronDown, Image } from "lucide-react"
 import { SidebarToggle } from "./SidebarToggle"
+import { SearchDialog } from "./SearchDialog"
 import { cn } from "@/lib/utils"
 
 interface LeftNavigationProps {
   isExpanded: boolean
   onToggle: () => void
   onClose: () => void
+  onImageClick: () => void
 }
 
 const chatHistory = [
@@ -28,7 +31,17 @@ const chatHistory = [
   "TCP/IP Encapsulation Order"
 ]
 
-export function LeftNavigation({ isExpanded, onToggle, onClose }: LeftNavigationProps) {
+export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick }: LeftNavigationProps) {
+  const [isSearchOpen, setIsSearchOpen] = useState(false)
+
+  const handleSearchClick = () => {
+    setIsSearchOpen(true)
+  }
+
+  const handleSearchClose = () => {
+    setIsSearchOpen(false)
+  }
+
   return (
     <>
       {/* Backdrop when expanded */}
@@ -98,6 +111,7 @@ export function LeftNavigation({ isExpanded, onToggle, onClose }: LeftNavigation
 
             <Button 
               variant="ghost"
+              onClick={handleSearchClick}
               className={cn(
                 "text-white hover:bg-[#2f2f2f] transition-all duration-300 ease-out",
                 isExpanded ? "w-full justify-start h-9 px-3" : "w-8 h-8 p-0 mx-auto flex justify-center"
@@ -107,15 +121,17 @@ export function LeftNavigation({ isExpanded, onToggle, onClose }: LeftNavigation
               {isExpanded && <span className="ml-3 transition-opacity duration-300 ease-out">Search chats</span>}
             </Button>
 
+
             <Button 
               variant="ghost"
+              onClick={onImageClick}
               className={cn(
                 "text-white hover:bg-[#2f2f2f] transition-all duration-300 ease-out",
                 isExpanded ? "w-full justify-start h-9 px-3" : "w-8 h-8 p-0 mx-auto flex justify-center"
               )}
             >
-              <Sparkles className="h-4 w-4 shrink-0" />
-              {isExpanded && <span className="ml-3 transition-opacity duration-300 ease-out">Library</span>}
+              <Image className="h-4 w-4 shrink-0" />
+              {isExpanded && <span className="ml-3 transition-opacity duration-300 ease-out">Generate</span>}
             </Button>
           </div>
 
@@ -177,6 +193,9 @@ export function LeftNavigation({ isExpanded, onToggle, onClose }: LeftNavigation
           )}
         </div>
       </div>
+
+      {/* Search Dialog */}
+      <SearchDialog isOpen={isSearchOpen} onClose={handleSearchClose} />
     </>
   )
 }
