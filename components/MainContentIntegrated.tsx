@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ImageGenerationView } from "./ImageGenerationView";
+import { ChatHeader } from "./ChatHeader";
 import { useResponsive } from "@/hooks/use-responsive";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -51,6 +52,7 @@ export function MainContent({
   onNewChat,
 }: MainContentProps) {
   const [isTemporaryChat, setIsTemporaryChat] = useState(false);
+  const [selectedModel, setSelectedModel] = useState("chatgpt");
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -201,6 +203,14 @@ export function MainContent({
     setEditContent("");
   };
 
+  const handleTemporaryChatToggle = (enabled: boolean) => {
+    setIsTemporaryChat(enabled);
+  };
+
+  const handleModelChange = (model: string) => {
+    setSelectedModel(model);
+  };
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       (window as any).resetMainContentChat = resetChat;
@@ -218,6 +228,14 @@ export function MainContent({
         />
       ) : (
         <div className="flex flex-col h-full relative w-[800px]">
+          {/* Chat Header */}
+          <ChatHeader
+            isTemporaryChat={isTemporaryChat}
+            onTemporaryChatToggle={handleTemporaryChatToggle}
+            selectedModel={selectedModel}
+            onModelChange={handleModelChange}
+          />
+          
           {/* Chat area */}
           <div className="flex-1 overflow-y-auto">
             {messages.length === 0 ? (
