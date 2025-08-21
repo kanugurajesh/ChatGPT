@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Edit, Search, User, X, ChevronDown, Image } from "lucide-react"
 import { SidebarToggle } from "./SidebarToggle"
 import { SearchDialog } from "./SearchDialog"
+import { useResponsive } from "@/hooks/use-responsive"
 import { cn } from "@/lib/utils"
 
 interface LeftNavigationProps {
@@ -12,6 +13,7 @@ interface LeftNavigationProps {
   onToggle: () => void
   onClose: () => void
   onImageClick: () => void
+  onNewChat: () => void
 }
 
 const chatHistory = [
@@ -31,8 +33,9 @@ const chatHistory = [
   "TCP/IP Encapsulation Order"
 ]
 
-export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick }: LeftNavigationProps) {
+export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, onNewChat }: LeftNavigationProps) {
   const [isSearchOpen, setIsSearchOpen] = useState(false)
+  const { isMobile } = useResponsive()
 
   const handleSearchClick = () => {
     setIsSearchOpen(true)
@@ -41,6 +44,7 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick }: 
   const handleSearchClose = () => {
     setIsSearchOpen(false)
   }
+
 
   return (
     <>
@@ -54,7 +58,13 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick }: 
 
       <div className={cn(
         "bg-[#0c0c0c] flex flex-col py-3 transition-all duration-300 ease-out relative z-40 h-full overflow-hidden",
-        isExpanded ? "w-60" : "w-12"
+        isMobile 
+          ? isExpanded 
+            ? "fixed left-0 top-0 w-80 z-50" 
+            : "w-12"
+          : isExpanded 
+            ? "w-60" 
+            : "w-12"
       )}>
         {/* Top Section */}
         <div className={cn(
@@ -99,7 +109,8 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick }: 
             isExpanded ? "mb-4" : "mb-4"
           )}>
             <Button 
-              variant="ghost" 
+              variant="ghost"
+              onClick={onNewChat}
               className={cn(
                 "text-white hover:bg-[#2f2f2f] transition-all duration-300 ease-out",
                 isExpanded ? "w-full justify-start h-9 px-3" : "w-8 h-8 p-0 mx-auto flex justify-center"

@@ -1,10 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { LeftNavigation } from "@/components/LeftNavigation"
-import { MainContent } from "@/components/MainContent"
+import { MainContent } from "@/components/MainContentIntegrated"
+import { useResponsive } from "@/hooks/use-responsive"
 
 export default function ChatGPTClone() {
+  const { isMobile, isSmallScreen } = useResponsive()
   const [navExpanded, setNavExpanded] = useState(false)
   const [showImageView, setShowImageView] = useState(false)
   const [currentImage, setCurrentImage] = useState<string | null>(null)
@@ -12,6 +14,13 @@ export default function ChatGPTClone() {
   const toggleNavigation = () => {
     setNavExpanded(!navExpanded)
   }
+
+  // Auto-close nav on mobile when view changes
+  useEffect(() => {
+    if (isMobile && showImageView) {
+      setNavExpanded(false)
+    }
+  }, [showImageView, isMobile])
 
   const closeNavigation = () => {
     setNavExpanded(false)
@@ -21,18 +30,32 @@ export default function ChatGPTClone() {
     setShowImageView(true)
   }
 
+  const handleNewChat = () => {
+    if (typeof window !== 'undefined' && (window as any).resetMainContentChat) {
+      (window as any).resetMainContentChat()
+    }
+  }
+
   const closeImageView = () => {
     setShowImageView(false)
   }
 
   return (
     <div className="flex h-screen bg-[#212121] text-white relative overflow-hidden">
+      {/* Mobile backdrop */}
+      {isMobile && navExpanded && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-20"
+          onClick={closeNavigation}
+        />
+      )}
       {/* Left Navigation */}
       <LeftNavigation 
         isExpanded={navExpanded} 
         onToggle={toggleNavigation}
         onClose={closeNavigation}
         onImageClick={handleImageClick}
+        onNewChat={handleNewChat}
       />
 
       {/* Main Content */}
@@ -42,6 +65,7 @@ export default function ChatGPTClone() {
         currentImage={currentImage}
         onCloseImageView={closeImageView}
         onSetImage={setCurrentImage}
+        onNewChat={handleNewChat}
       />
 
     </div>

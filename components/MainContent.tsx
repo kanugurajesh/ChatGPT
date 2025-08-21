@@ -2,21 +2,27 @@
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { ChevronDown, Mic, Cloud, ArrowUp } from "lucide-react"
+import { ChevronDown, Mic, Cloud, ArrowUp, X, Menu } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ImageGenerationView } from "./ImageGenerationView"
+import { ChatInterface } from "./ChatInterface"
+import { useResponsive } from "@/hooks/use-responsive"
 import { useState } from "react"
 
 interface MainContentProps {
   isNavExpanded: boolean
   showImageView: boolean
+  showChatView: boolean
   currentImage: string | null
   onCloseImageView: () => void
+  onCloseChatView: () => void
   onSetImage: (image: string | null) => void
+  onToggleNav?: () => void
 }
 
-export function MainContent({ isNavExpanded, showImageView, currentImage, onCloseImageView, onSetImage }: MainContentProps) {
+export function MainContent({ isNavExpanded, showImageView, showChatView, currentImage, onCloseImageView, onCloseChatView, onSetImage }: MainContentProps) {
   const [isTemporaryChat, setIsTemporaryChat] = useState(false)
+  const { isMobile, isSmallScreen } = useResponsive()
 
   const toggleTemporaryChat = () => {
     setIsTemporaryChat(!isTemporaryChat)
@@ -25,7 +31,7 @@ export function MainContent({ isNavExpanded, showImageView, currentImage, onClos
   return (
     <div className={cn(
       "flex-1 flex flex-col transition-all duration-300 ease-out",
-      isNavExpanded ? "ml-0" : "ml-0"
+      isMobile ? "ml-0" : isNavExpanded ? "ml-0" : "ml-0"
     )}>
       {showImageView ? (
         /* Show Image Generation View */
@@ -34,6 +40,23 @@ export function MainContent({ isNavExpanded, showImageView, currentImage, onClos
           onClose={onCloseImageView}
           onSetImage={onSetImage}
         />
+      ) : showChatView ? (
+        /* Show Chat Interface */
+        <div className="flex-1 flex flex-col">
+          {/* Header with close button */}
+          <header className="flex items-center justify-between px-6 py-4 border-b border-[#2f2f2f]">
+            <h2 className="text-lg font-medium text-white">Chat</h2>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={onCloseChatView}
+              className="text-gray-400 hover:text-white hover:bg-[#2f2f2f] w-8 h-8"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </header>
+          <ChatInterface />
+        </div>
       ) : (
         <>
           {/* Top Header */}
