@@ -2,9 +2,10 @@
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { ChevronDown, Mic } from "lucide-react"
+import { ChevronDown, Mic, Cloud, ArrowUp } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ImageGenerationView } from "./ImageGenerationView"
+import { useState } from "react"
 
 interface MainContentProps {
   isNavExpanded: boolean
@@ -15,6 +16,12 @@ interface MainContentProps {
 }
 
 export function MainContent({ isNavExpanded, showImageView, currentImage, onCloseImageView, onSetImage }: MainContentProps) {
+  const [isTemporaryChat, setIsTemporaryChat] = useState(false)
+
+  const toggleTemporaryChat = () => {
+    setIsTemporaryChat(!isTemporaryChat)
+  }
+
   return (
     <div className={cn(
       "flex-1 flex flex-col transition-all duration-300 ease-out",
@@ -30,8 +37,8 @@ export function MainContent({ isNavExpanded, showImageView, currentImage, onClos
       ) : (
         <>
           {/* Top Header */}
-          <header className="flex items-center justify-center px-6 py-4 relative">
-            <div className="absolute left-6 flex items-center gap-2">
+          <header className="flex items-center justify-between px-6 py-4">
+            <div className="flex items-center gap-2">
               <Button variant="ghost" className="text-white hover:bg-[#2f2f2f] font-medium px-3 py-2 h-auto text-lg">
                 ChatGPT
                 <ChevronDown className="h-4 w-4 ml-2" />
@@ -41,6 +48,18 @@ export function MainContent({ isNavExpanded, showImageView, currentImage, onClos
             <Button className="bg-[#6366f1] hover:bg-[#5855eb] text-white px-4 py-2 rounded-full text-sm font-medium">
               Upgrade to Go
             </Button>
+
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={toggleTemporaryChat}
+                variant="ghost"
+                size="icon"
+                className="text-white hover:bg-[#2f2f2f] rounded-lg p-2 h-auto w-auto"
+                title={isTemporaryChat ? "Turn off temporary chat" : "Turn on temporary chat"}
+              >
+                <Cloud className="h-4 w-4" />
+              </Button>
+            </div>
           </header>
 
           {/* Main Chat Area */}
@@ -48,7 +67,18 @@ export function MainContent({ isNavExpanded, showImageView, currentImage, onClos
             <div className="w-full max-w-4xl space-y-10">
               {/* Main Title */}
               <div className="text-center">
-                <h1 className="text-4xl font-light text-white">What can I help with?</h1>
+                {isTemporaryChat ? (
+                  <>
+                    <h1 className="text-4xl font-light text-white mb-4">Temporary Chat</h1>
+                    <p className="text-gray-400 text-sm max-w-md mx-auto leading-relaxed">
+                      This chat won't appear in history, use or update ChatGPT's memory, 
+                      or be used to train our models. For safety purposes, we may keep a 
+                      copy of this chat for up to 30 days.
+                    </p>
+                  </>
+                ) : (
+                  <h1 className="text-4xl font-light text-white">What are you working on?</h1>
+                )}
               </div>
 
               {/* Input Area */}
@@ -69,15 +99,21 @@ export function MainContent({ isNavExpanded, showImageView, currentImage, onClos
                     <Button variant="ghost" size="icon" className="text-gray-400 hover:text-white transition-colors p-0 h-auto w-auto">
                       <Mic className="h-5 w-5" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="text-gray-400 hover:text-white transition-colors p-0 h-auto w-auto ml-2">
-                      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <circle cx="12" cy="12" r="3" />
-                        <circle cx="12" cy="3" r="1" />
-                        <circle cx="12" cy="21" r="1" />
-                        <circle cx="3" cy="12" r="1" />
-                        <circle cx="21" cy="12" r="1" />
-                      </svg>
-                    </Button>
+                    {isTemporaryChat ? (
+                      <Button variant="ghost" size="icon" className="text-gray-400 hover:text-white transition-colors p-0 h-auto w-auto ml-2">
+                        <ArrowUp className="h-5 w-5" />
+                      </Button>
+                    ) : (
+                      <Button variant="ghost" size="icon" className="text-gray-400 hover:text-white transition-colors p-0 h-auto w-auto ml-2">
+                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <circle cx="12" cy="12" r="3" />
+                          <circle cx="12" cy="3" r="1" />
+                          <circle cx="12" cy="21" r="1" />
+                          <circle cx="3" cy="12" r="1" />
+                          <circle cx="21" cy="12" r="1" />
+                        </svg>
+                      </Button>
+                    )}
                   </div>
                 </div>
               </div>
