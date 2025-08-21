@@ -41,7 +41,7 @@ export default function ChatGPTClone() {
   };
 
   return (
-    <div className="flex h-screen bg-[#212121] text-white relative overflow-hidden">
+    <div className="flex w-screen h-screen bg-[#212121] text-white relative overflow-hidden">
       {/* Mobile backdrop */}
       {isMobile && navExpanded && (
         <div
@@ -58,7 +58,7 @@ export default function ChatGPTClone() {
       />
 
       {/* Chat area takes remaining space */}
-      <div className="flex-1 flex justify-center">
+      <div className="flex w-full justify-center">
         <MainContent
           isNavExpanded={navExpanded}
           showImageView={showImageView}

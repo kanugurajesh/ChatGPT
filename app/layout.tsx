@@ -4,9 +4,9 @@ import { GeistMono } from 'geist/font/mono'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'ChatUI',
+  title: 'ChatGPT',
   description: 'Modern Chat Interface',
-  generator: 'ChatUI',
+  generator: 'ChatGPT',
 }
 
 export default function RootLayout({

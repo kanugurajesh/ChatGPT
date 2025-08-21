@@ -234,7 +234,7 @@ export function MainContent({
                     )}
                   </div>
                   {/* Input area (first prompt) */}
-                  <div className="w-full max-w-3xl px-6">
+                  <div className="px-6 md:w-[600px] lg:w-[800px] xl:w-[1000px]">
                     <div className="relative bg-[#2A2A2A] rounded-lg border border-gray-700 flex items-center">
                       <Plus className="w-5 h-5 text-gray-400 ml-3 mr-2 cursor-pointer hover:text-gray-300" />
                       <Textarea
@@ -268,8 +268,8 @@ export function MainContent({
               </div>
             ) : (
               // Messages
-              <div className="flex justify-center w-full">
-                <div className="w-full max-w-3xl px-4 py-6 space-y-6">
+              <div className="flex justify-center md:w-[600px] lg:w-[800px] xl:w-[1000px]">
+                <div className="w-full px-4 py-6 space-y-6" style={{ maxWidth: '1200px' }}>
                   {messages.map((message) => (
                     <div key={message.id} className="text-base whitespace-pre-wrap leading-relaxed text-gray-100">
                       <div className="flex justify-between items-start mb-2">
@@ -357,7 +357,7 @@ export function MainContent({
           {messages.length > 0 && (
             <div className="border-t border-gray-700 bg-[#212121]">
               <div className="flex justify-center w-full">
-                <div className="w-full max-w-3xl px-4 py-4">
+                <div className="w-full px-4 py-4" style={{ maxWidth: '1200px' }}>
                   <div className="relative bg-[#2A2A2A] rounded-lg border border-gray-700 flex items-center">
                     <Plus className="w-5 h-5 text-gray-400 ml-3 mr-2 cursor-pointer hover:text-gray-300" />
                     <Textarea
