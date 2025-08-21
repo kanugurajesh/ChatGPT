@@ -13,6 +13,10 @@ import {
 import { cn } from "@/lib/utils";
 import { ImageGenerationView } from "./ImageGenerationView";
 import { useResponsive } from "@/hooks/use-responsive";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
+import 'highlight.js/styles/github-dark.css';
 
 interface Message {
   id: string;
@@ -336,7 +340,58 @@ export function MainContent({
                           </div>
                         </div>
                       ) : (
-                        <p>{message.content}</p>
+                        <div className="prose prose-invert max-w-none">
+                          {message.role === "assistant" ? (
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              rehypePlugins={[rehypeHighlight]}
+                              components={{
+                                code: ({ node, inline, className, children, ...props }) => {
+                                  const match = /language-(\w+)/.exec(className || '');
+                                  return !inline && match ? (
+                                    <pre className="bg-gray-800 rounded-lg p-4 overflow-x-auto">
+                                      <code className={className} {...props}>
+                                        {children}
+                                      </code>
+                                    </pre>
+                                  ) : (
+                                    <code className="bg-gray-800 px-2 py-1 rounded text-sm" {...props}>
+                                      {children}
+                                    </code>
+                                  );
+                                },
+                                pre: ({ children }) => <div>{children}</div>,
+                                p: ({ children }) => <p className="mb-4 last:mb-0">{children}</p>,
+                                ul: ({ children }) => <ul className="list-disc pl-6 mb-4">{children}</ul>,
+                                ol: ({ children }) => <ol className="list-decimal pl-6 mb-4">{children}</ol>,
+                                li: ({ children }) => <li className="mb-2">{children}</li>,
+                                blockquote: ({ children }) => (
+                                  <blockquote className="border-l-4 border-gray-600 pl-4 italic text-gray-300 mb-4">
+                                    {children}
+                                  </blockquote>
+                                ),
+                                h1: ({ children }) => <h1 className="text-2xl font-bold mb-4">{children}</h1>,
+                                h2: ({ children }) => <h2 className="text-xl font-bold mb-3">{children}</h2>,
+                                h3: ({ children }) => <h3 className="text-lg font-bold mb-2">{children}</h3>,
+                                table: ({ children }) => (
+                                  <div className="overflow-x-auto mb-4">
+                                    <table className="min-w-full border border-gray-600">{children}</table>
+                                  </div>
+                                ),
+                                th: ({ children }) => (
+                                  <th className="border border-gray-600 px-4 py-2 bg-gray-800 font-bold text-left">{children}</th>
+                                ),
+                                td: ({ children }) => (
+                                  <td className="border border-gray-600 px-4 py-2">{children}</td>
+                                ),
+                              }}
+                            >
+                              {message.content}
+                            </ReactMarkdown>
+                          ) : (
+                            <p>{message.content}</p>
+                          )}
+                        </div>
                       )}
                     </div>
                   ))}
