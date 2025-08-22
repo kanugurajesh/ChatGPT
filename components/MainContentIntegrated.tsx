@@ -14,11 +14,14 @@ import {
   Share,
   MoreHorizontal,
   Download,
+  Brain,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ImageGenerationView } from "./ImageGenerationView";
 import { ChatHeader } from "./ChatHeader";
+import { MemoryPanel } from "./MemoryPanel";
 import { useResponsive } from "@/hooks/use-responsive";
+import { sessionManager } from "@/lib/session";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -58,6 +61,8 @@ export function MainContent({
   const [isLoading, setIsLoading] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
+  const [showMemoryPanel, setShowMemoryPanel] = useState(false);
+  const [userId, setUserId] = useState<string>('default_user');
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const { isMobile } = useResponsive();
@@ -65,6 +70,14 @@ export function MainContent({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    // Initialize session-based user ID
+    if (typeof window !== 'undefined') {
+      const sessionId = sessionManager.getOrCreateSession();
+      setUserId(sessionId);
+    }
+  }, []);
 
   function getContextMessages(msgArr: Message[]) {
     return msgArr.slice(-MAX_CONTEXT).map((m) => ({
@@ -92,7 +105,11 @@ export function MainContent({
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: getContextMessages(updatedMessages) }),
+        body: JSON.stringify({ 
+          messages: getContextMessages(updatedMessages),
+          userId: userId,
+          useMemory: !isTemporaryChat
+        }),
       });
 
       if (!response.body) throw new Error("No response body");
@@ -229,12 +246,25 @@ export function MainContent({
       ) : (
         <div className="flex flex-col h-full relative w-[800px]">
           {/* Chat Header */}
-          <ChatHeader
-            isTemporaryChat={isTemporaryChat}
-            onTemporaryChatToggle={handleTemporaryChatToggle}
-            selectedModel={selectedModel}
-            onModelChange={handleModelChange}
-          />
+          <div className="flex items-center justify-between">
+            <ChatHeader
+              isTemporaryChat={isTemporaryChat}
+              onTemporaryChatToggle={handleTemporaryChatToggle}
+              selectedModel={selectedModel}
+              onModelChange={handleModelChange}
+            />
+            {!isTemporaryChat && (
+              <Button
+                onClick={() => setShowMemoryPanel(true)}
+                variant="ghost"
+                size="sm"
+                className="mr-4 text-blue-400 hover:text-blue-300 hover:bg-blue-900/20 flex items-center space-x-2"
+              >
+                <Brain className="w-4 h-4" />
+                <span className="hidden sm:inline">Memory</span>
+              </Button>
+            )}
+          </div>
           
           {/* Chat area */}
           <div className="flex-1 overflow-y-auto">
@@ -526,6 +556,12 @@ export function MainContent({
       {isNavExpanded && (
         <div className="fixed inset-0 bg-black bg-opacity-60 z-50" />
       )}
+      
+      {/* Memory Management Panel */}
+      <MemoryPanel 
+        isOpen={showMemoryPanel} 
+        onClose={() => setShowMemoryPanel(false)} 
+      />
     </div>
   );
 }
