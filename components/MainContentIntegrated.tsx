@@ -14,12 +14,10 @@ import {
   Share,
   MoreHorizontal,
   Download,
-  Brain,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ImageGenerationView } from "./ImageGenerationView";
 import { ChatHeader } from "./ChatHeader";
-import { MemoryPanel } from "./MemoryPanel";
 import { useResponsive } from "@/hooks/use-responsive";
 import { sessionManager } from "@/lib/session";
 import ReactMarkdown from 'react-markdown';
@@ -61,7 +59,6 @@ export function MainContent({
   const [isLoading, setIsLoading] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
-  const [showMemoryPanel, setShowMemoryPanel] = useState(false);
   const [userId, setUserId] = useState<string>('default_user');
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -107,8 +104,7 @@ export function MainContent({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
           messages: getContextMessages(updatedMessages),
-          userId: userId,
-          useMemory: !isTemporaryChat
+          userId: userId
         }),
       });
 
@@ -253,17 +249,6 @@ export function MainContent({
               selectedModel={selectedModel}
               onModelChange={handleModelChange}
             />
-            {!isTemporaryChat && (
-              <Button
-                onClick={() => setShowMemoryPanel(true)}
-                variant="ghost"
-                size="sm"
-                className="mr-4 text-blue-400 hover:text-blue-300 hover:bg-blue-900/20 flex items-center space-x-2"
-              >
-                <Brain className="w-4 h-4" />
-                <span className="hidden sm:inline">Memory</span>
-              </Button>
-            )}
           </div>
           
           {/* Chat area */}
@@ -557,11 +542,6 @@ export function MainContent({
         <div className="fixed inset-0 bg-black bg-opacity-60 z-50" />
       )}
       
-      {/* Memory Management Panel */}
-      <MemoryPanel 
-        isOpen={showMemoryPanel} 
-        onClose={() => setShowMemoryPanel(false)} 
-      />
     </div>
   );
 }
