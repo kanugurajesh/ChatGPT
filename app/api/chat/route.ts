@@ -26,33 +26,74 @@ export async function POST(req: NextRequest) {
   // Retrieve relevant memories only for authenticated users
   if (isAuthenticated && latestUserMessage?.content && userId) {
     try {
-      const memories = await MemoryService.searchMemory(latestUserMessage.content, {
-        user_id: userId,
-        limit: 3
-      });
+      console.log('Searching memories for user:', userId, 'query:', latestUserMessage.content);
       
-      if (memories && Array.isArray(memories) && memories.length > 0) {
-        const relevantMemories = memories
+      // Try both specific search and getting all memories for better context
+      const [searchResults, allMemories] = await Promise.all([
+        MemoryService.searchMemory(latestUserMessage.content, {
+          user_id: userId,
+          limit: 5
+        }).catch(err => {
+          console.error('Memory search failed:', err);
+          return [];
+        }),
+        MemoryService.getAllMemories(userId, 10).catch(err => {
+          console.error('Get all memories failed:', err);
+          return [];
+        })
+      ]);
+      
+      console.log('Memory search results:', searchResults);
+      console.log('All memories count:', allMemories?.length || 0);
+      
+      // Use search results first, then fall back to recent memories
+      let relevantMemories = '';
+      
+      if (searchResults && Array.isArray(searchResults) && searchResults.length > 0) {
+        relevantMemories = searchResults
           .filter(memory => memory?.memory && memory.memory.trim().length > 0)
           .map(memory => `- ${memory.memory}`)
           .join('\n');
-        
-        if (relevantMemories) {
-          memoryContext = `\n\nRelevant context from our previous conversations:
+      } else if (allMemories && Array.isArray(allMemories) && allMemories.length > 0) {
+        // If no search results, include recent memories for better context
+        relevantMemories = allMemories
+          .slice(0, 3)
+          .filter(memory => memory?.memory && memory.memory.trim().length > 0)
+          .map(memory => `- ${memory.memory}`)
+          .join('\n');
+      }
+      
+      if (relevantMemories) {
+        memoryContext = `\n\nRelevant context from our previous conversations:
 ${relevantMemories}
 
 Please use this context to provide more personalized and contextual responses when relevant.`;
-        }
+        console.log('Memory context added to prompt');
+      } else {
+        console.log('No relevant memories found to add to context');
       }
     } catch (error) {
-      console.error('Memory search failed:', error);
+      console.error('Memory retrieval failed:', error);
       // Continue without memory context if search fails
     }
+  } else {
+    console.log('Memory search skipped - authenticated:', isAuthenticated, 'hasMessage:', !!latestUserMessage?.content, 'userId:', userId);
   }
 
-  // Enhance the system message or the first message with memory context
+  // Enhance the conversation with memory context and system instruction
   let messages = [...trimmedHistory];
+  
   if (memoryContext && messages.length > 0) {
+    // Add system message at the beginning if we have memory context
+    messages = [
+      {
+        role: 'system',
+        content: 'You are a helpful AI assistant. When provided with relevant context from previous conversations, use that information to give more personalized and contextual responses. Pay close attention to user preferences, facts they\'ve shared, and previous discussions.'
+      },
+      ...messages
+    ];
+    
+    // Add memory context to the latest user message
     const lastMessage = messages[messages.length - 1];
     if (lastMessage.role === 'user') {
       messages[messages.length - 1] = {
@@ -67,18 +108,7 @@ Please use this context to provide more personalized and contextual responses wh
     messages,
   });
 
-  // Store conversation in memory after generating response
-  // Only store memories for authenticated users
-  if (isAuthenticated && userId && trimmedHistory.length >= 2) {
-    const memoryMessages: MemoryMessage[] = trimmedHistory.slice(-2).map(msg => ({
-      role: msg.role as "user" | "assistant",
-      content: msg.content
-    }));
-
-    // Store memory asynchronously without blocking the response
-    MemoryService.addMemory(memoryMessages, { user_id: userId })
-      .catch(error => console.error('Failed to store memory:', error));
-  }
+  // Note: Memory storage is now handled client-side after conversation completes
 
   // Return streaming response
   return new Response(textStream, {

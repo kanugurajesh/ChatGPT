@@ -61,6 +61,7 @@ export function MainContent({
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
   const [userId, setUserId] = useState<string>('default_user');
+  const [isStoringMemory, setIsStoringMemory] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const { isMobile } = useResponsive();
@@ -140,6 +141,40 @@ export function MainContent({
             m.id === assistantId ? { ...m, content: streamingText } : m
           )
         );
+      }
+
+      // Store memory after conversation is complete (only for authenticated users)
+      if (isSignedIn && user?.id && streamingText.trim()) {
+        setIsStoringMemory(true);
+        const conversationToStore = [
+          { role: "user", content: content.trim() },
+          { role: "assistant", content: streamingText.trim() }
+        ];
+        
+        console.log('Storing conversation memory:', conversationToStore);
+        
+        try {
+          const memoryResponse = await fetch('/api/memory/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              messages: conversationToStore,
+              metadata: { timestamp: new Date().toISOString() }
+            })
+          });
+          
+          if (memoryResponse.ok) {
+            console.log('Memory stored successfully');
+          } else {
+            const errorData = await memoryResponse.json().catch(() => ({}));
+            console.error('Failed to store memory:', memoryResponse.status, errorData);
+          }
+        } catch (error) {
+          console.error('Error storing memory:', error);
+        } finally {
+          setIsStoringMemory(false);
+        }
       }
     } catch (err) {
       setMessages((msgs) => [
@@ -322,6 +357,18 @@ export function MainContent({
                           <ArrowUp className="w-4 h-4" />
                         </Button>
                       </div>
+                    </div>
+                    
+                    {/* Status indicator */}
+                    <div className="text-center mt-3 text-xs text-gray-500">
+                      {isSignedIn ? (
+                        <div className="flex items-center justify-center gap-2">
+                          <span>✓ Signed in as {user?.firstName || 'User'}</span>
+                          {isStoringMemory && <span>• Saving memory...</span>}
+                        </div>
+                      ) : (
+                        <span>Guest mode - Sign in to save memories</span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -537,6 +584,18 @@ export function MainContent({
                         <ArrowUp className="w-4 h-4" />
                       </Button>
                     </div>
+                  </div>
+                  
+                  {/* Status indicator */}
+                  <div className="text-center mt-3 text-xs text-gray-500">
+                    {isSignedIn ? (
+                      <div className="flex items-center justify-center gap-2">
+                        <span>✓ Signed in as {user?.firstName || 'User'}</span>
+                        {isStoringMemory && <span>• Saving memory...</span>}
+                      </div>
+                    ) : (
+                      <span>Guest mode - Sign in to save memories</span>
+                    )}
                   </div>
                 </div>
               </div>

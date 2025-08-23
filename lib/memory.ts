@@ -37,15 +37,8 @@ export class MemoryService {
 
   static async searchMemory(query: string, options: MemorySearchOptions) {
     try {
-      const filters = {
-        OR: [
-          { user_id: options.user_id }
-        ]
-      };
-
       const results = await memoryClient.search(query, {
-        api_version: "v2",
-        filters: filters,
+        user_id: options.user_id,
         limit: options.limit || 5
       });
 
@@ -58,14 +51,8 @@ export class MemoryService {
 
   static async getAllMemories(userId: string, limit = 10) {
     try {
-      const filters = {
-        OR: [
-          { user_id: userId }
-        ]
-      };
-
       const results = await memoryClient.getAll({
-        filters: filters,
+        user_id: userId,
         limit: limit
       });
 

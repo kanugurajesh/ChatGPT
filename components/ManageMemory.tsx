@@ -27,15 +27,22 @@ export function ManageMemory({ isOpen, onClose, userId }: ManageMemoryProps) {
     
     setIsLoading(true);
     try {
-      const response = await fetch(`/api/memory?limit=50`);
+      const response = await fetch(`/api/memory?limit=50`, {
+        credentials: 'include'
+      });
+      
+      console.log('Memory fetch response status:', response.status);
+      
       if (response.ok) {
         const data = await response.json();
+        console.log('Memory fetch data:', data);
         setMemories(Array.isArray(data) ? data : []);
-      } else if (response.status === 401) {
-        console.error('Authentication required to view memories');
-        setMemories([]);
       } else {
-        console.error('Failed to fetch memories');
+        const errorData = await response.json().catch(() => ({}));
+        console.error('Failed to fetch memories:', response.status, errorData);
+        if (response.status === 401) {
+          console.error('Authentication required to view memories');
+        }
         setMemories([]);
       }
     } catch (error) {
@@ -51,12 +58,14 @@ export function ManageMemory({ isOpen, onClose, userId }: ManageMemoryProps) {
     try {
       const response = await fetch(`/api/memory?memoryId=${memoryId}`, {
         method: 'DELETE',
+        credentials: 'include'
       });
       
       if (response.ok) {
         setMemories(prev => prev.filter(memory => memory.id !== memoryId));
       } else {
-        console.error('Failed to delete memory');
+        const errorData = await response.json().catch(() => ({}));
+        console.error('Failed to delete memory:', response.status, errorData);
       }
     } catch (error) {
       console.error('Error deleting memory:', error);
@@ -70,12 +79,14 @@ export function ManageMemory({ isOpen, onClose, userId }: ManageMemoryProps) {
     try {
       const response = await fetch(`/api/memory?deleteAll=true`, {
         method: 'DELETE',
+        credentials: 'include'
       });
       
       if (response.ok) {
         setMemories([]);
       } else {
-        console.error('Failed to delete all memories');
+        const errorData = await response.json().catch(() => ({}));
+        console.error('Failed to delete all memories:', response.status, errorData);
       }
     } catch (error) {
       console.error('Error deleting all memories:', error);
@@ -122,7 +133,8 @@ export function ManageMemory({ isOpen, onClose, userId }: ManageMemoryProps) {
             </div>
           ) : memories.length === 0 ? (
             <div className="text-center text-gray-400 py-8">
-              No saved memories found.
+              <div>No saved memories found.</div>
+              <div className="text-xs mt-2">Start chatting while signed in to save memories!</div>
             </div>
           ) : (
             <div className="space-y-3">
