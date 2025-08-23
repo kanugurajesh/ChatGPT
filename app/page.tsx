@@ -4,16 +4,32 @@ import { useState, useEffect } from "react";
 import { LeftNavigation } from "@/components/LeftNavigation";
 import { MainContent } from "@/components/MainContentIntegrated";
 import { useResponsive } from "@/hooks/use-responsive";
+import { sessionManager } from "@/lib/session";
+import { useUser } from "@clerk/nextjs";
 
 export default function ChatGPTClone() {
   const { isMobile, isSmallScreen } = useResponsive();
+  const { user, isLoaded } = useUser();
   const [navExpanded, setNavExpanded] = useState(false);
   const [showImageView, setShowImageView] = useState(false);
   const [currentImage, setCurrentImage] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string>('default_user');
 
   const toggleNavigation = () => {
     setNavExpanded(!navExpanded);
   };
+
+  // Initialize user ID - use Clerk user ID if authenticated, otherwise session ID
+  useEffect(() => {
+    if (isLoaded) {
+      if (user?.id) {
+        setUserId(user.id);
+      } else if (typeof window !== 'undefined') {
+        const sessionId = sessionManager.getOrCreateSession();
+        setUserId(sessionId);
+      }
+    }
+  }, [user, isLoaded]);
 
   // Auto-close nav on mobile when view changes
   useEffect(() => {
@@ -55,6 +71,7 @@ export default function ChatGPTClone() {
         onClose={closeNavigation}
         onImageClick={handleImageClick}
         onNewChat={handleNewChat}
+        userId={userId}
       />
 
       {/* Chat area takes remaining space */}

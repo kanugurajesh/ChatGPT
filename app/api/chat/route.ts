@@ -2,14 +2,19 @@ import { google } from '@ai-sdk/google';
 import { streamText } from 'ai';
 import { NextRequest } from 'next/server';
 import { MemoryService, type MemoryMessage } from '@/lib/memory';
+import { auth } from '@clerk/nextjs/server';
 
 const MAX_CONTEXT = 20;
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
   const history = (Array.isArray(body?.messages) ? body.messages : []) as { role: string, content: string }[];
-  const userId = body?.userId || 'default_user';
   const trimmedHistory = history.slice(-MAX_CONTEXT);
+  
+  // Get authenticated user ID from Clerk, fallback to request body for unauthenticated users
+  const { userId: clerkUserId } = await auth();
+  const userId = clerkUserId || body?.userId || 'default_user';
+  const isAuthenticated = !!clerkUserId;
 
   const model = google('models/gemini-2.0-flash-exp');
 
@@ -18,8 +23,8 @@ export async function POST(req: NextRequest) {
   
   let memoryContext = '';
   
-  // Retrieve relevant memories if we have a user message
-  if (latestUserMessage?.content && userId) {
+  // Retrieve relevant memories only for authenticated users
+  if (isAuthenticated && latestUserMessage?.content && userId) {
     try {
       const memories = await MemoryService.searchMemory(latestUserMessage.content, {
         user_id: userId,
@@ -63,8 +68,8 @@ Please use this context to provide more personalized and contextual responses wh
   });
 
   // Store conversation in memory after generating response
-  // We'll do this in a non-blocking way
-  if (userId && trimmedHistory.length >= 2) {
+  // Only store memories for authenticated users
+  if (isAuthenticated && userId && trimmedHistory.length >= 2) {
     const memoryMessages: MemoryMessage[] = trimmedHistory.slice(-2).map(msg => ({
       role: msg.role as "user" | "assistant",
       content: msg.content

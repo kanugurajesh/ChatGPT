@@ -75,4 +75,26 @@ export class MemoryService {
       throw error;
     }
   }
+
+  static async deleteMemory(memoryId: string) {
+    try {
+      const result = await memoryClient.delete(memoryId);
+      return result;
+    } catch (error) {
+      console.error('Error deleting memory:', error);
+      throw error;
+    }
+  }
+
+  static async deleteAllMemories(userId: string) {
+    try {
+      const result = await memoryClient.deleteAll({
+        user_id: userId
+      });
+      return result;
+    } catch (error) {
+      console.error('Error deleting all memories:', error);
+      throw error;
+    }
+  }
 }

@@ -20,6 +20,7 @@ import { ImageGenerationView } from "./ImageGenerationView";
 import { ChatHeader } from "./ChatHeader";
 import { useResponsive } from "@/hooks/use-responsive";
 import { sessionManager } from "@/lib/session";
+import { useUser } from "@clerk/nextjs";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -63,18 +64,23 @@ export function MainContent({
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const { isMobile } = useResponsive();
+  const { user, isSignedIn, isLoaded } = useUser();
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   useEffect(() => {
-    // Initialize session-based user ID
-    if (typeof window !== 'undefined') {
-      const sessionId = sessionManager.getOrCreateSession();
-      setUserId(sessionId);
+    // Initialize user ID - use Clerk user ID if authenticated, otherwise session ID
+    if (isLoaded) {
+      if (isSignedIn && user?.id) {
+        setUserId(user.id);
+      } else if (typeof window !== 'undefined') {
+        const sessionId = sessionManager.getOrCreateSession();
+        setUserId(sessionId);
+      }
     }
-  }, []);
+  }, [user, isSignedIn, isLoaded]);
 
   function getContextMessages(msgArr: Message[]) {
     return msgArr.slice(-MAX_CONTEXT).map((m) => ({

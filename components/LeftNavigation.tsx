@@ -2,11 +2,13 @@
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Edit, Search, User, X, ChevronDown, Image } from "lucide-react"
+import { Edit, Search, User, X, ChevronDown, Image, Brain } from "lucide-react"
 import { SidebarToggle } from "./SidebarToggle"
 import { SearchDialog } from "./SearchDialog"
+import { ManageMemory } from "./ManageMemory"
 import { useResponsive } from "@/hooks/use-responsive"
 import { cn } from "@/lib/utils"
+import { useUser, SignInButton, UserButton } from "@clerk/nextjs"
 
 interface LeftNavigationProps {
   isExpanded: boolean
@@ -14,6 +16,7 @@ interface LeftNavigationProps {
   onClose: () => void
   onImageClick: () => void
   onNewChat: () => void
+  userId?: string
 }
 
 const chatHistory = [
@@ -33,9 +36,11 @@ const chatHistory = [
   "TCP/IP Encapsulation Order"
 ]
 
-export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, onNewChat }: LeftNavigationProps) {
+export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, onNewChat, userId }: LeftNavigationProps) {
   const [isSearchOpen, setIsSearchOpen] = useState(false)
+  const [isMemoryOpen, setIsMemoryOpen] = useState(false)
   const { isMobile } = useResponsive()
+  const { user, isSignedIn } = useUser()
 
   const handleSearchClick = () => {
     setIsSearchOpen(true)
@@ -43,6 +48,14 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
 
   const handleSearchClose = () => {
     setIsSearchOpen(false)
+  }
+
+  const handleMemoryClick = () => {
+    setIsMemoryOpen(true)
+  }
+
+  const handleMemoryClose = () => {
+    setIsMemoryOpen(false)
   }
 
 
@@ -144,6 +157,21 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
               <Image className="h-4 w-4 shrink-0" />
               {isExpanded && <span className="ml-3 transition-opacity duration-300 ease-out">Generate</span>}
             </Button>
+
+            <Button 
+              variant="ghost"
+              onClick={handleMemoryClick}
+              disabled={!isSignedIn}
+              className={cn(
+                "text-white hover:bg-[#2f2f2f] transition-all duration-300 ease-out",
+                !isSignedIn && "opacity-50 cursor-not-allowed",
+                isExpanded ? "w-full justify-start h-9 px-3" : "w-8 h-8 p-0 mx-auto flex justify-center"
+              )}
+              title={!isSignedIn ? "Sign in to access memories" : "Memories"}
+            >
+              <Brain className="h-4 w-4 shrink-0" />
+              {isExpanded && <span className="ml-3 transition-opacity duration-300 ease-out">Memories</span>}
+            </Button>
           </div>
 
           {/* Additional Options - Only show when expanded */}
@@ -189,24 +217,68 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
         )}>
           {isExpanded ? (
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center shrink-0">
-                <span className="text-white text-sm font-medium">R</span>
-              </div>
+              {isSignedIn ? (
+                <UserButton 
+                  appearance={{
+                    elements: {
+                      avatarBox: "w-8 h-8",
+                      userButtonTrigger: "focus:shadow-none"
+                    }
+                  }}
+                />
+              ) : (
+                <div className="w-8 h-8 bg-gray-600 rounded-full flex items-center justify-center shrink-0">
+                  <User className="h-4 w-4 text-white" />
+                </div>
+              )}
               <div className="flex-1 min-w-0">
-                <div className="text-white text-sm font-medium">Rajesh</div>
-                <div className="text-gray-400 text-xs">Free</div>
+                {isSignedIn ? (
+                  <>
+                    <div className="text-white text-sm font-medium">{user?.firstName || user?.username || 'User'}</div>
+                    <div className="text-gray-400 text-xs">Authenticated</div>
+                  </>
+                ) : (
+                  <>
+                    <SignInButton mode="modal">
+                      <button className="text-white text-sm font-medium hover:text-gray-300">Sign in</button>
+                    </SignInButton>
+                    <div className="text-gray-400 text-xs">Guest mode</div>
+                  </>
+                )}
               </div>
             </div>
           ) : (
-            <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center">
-              <span className="text-white text-xs font-medium">R</span>
-            </div>
+            isSignedIn ? (
+              <UserButton 
+                appearance={{
+                  elements: {
+                    avatarBox: "w-6 h-6",
+                    userButtonTrigger: "focus:shadow-none"
+                  }
+                }}
+              />
+            ) : (
+              <SignInButton mode="modal">
+                <div className="w-6 h-6 bg-gray-600 rounded-full flex items-center justify-center cursor-pointer hover:bg-gray-500">
+                  <User className="h-3 w-3 text-white" />
+                </div>
+              </SignInButton>
+            )
           )}
         </div>
       </div>
 
       {/* Search Dialog */}
       <SearchDialog isOpen={isSearchOpen} onClose={handleSearchClose} />
+      
+      {/* Memory Management Dialog */}
+      {isSignedIn && userId && (
+        <ManageMemory 
+          isOpen={isMemoryOpen} 
+          onClose={handleMemoryClose} 
+          userId={userId} 
+        />
+      )}
     </>
   )
 }
