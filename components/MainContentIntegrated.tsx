@@ -673,9 +673,6 @@ export function MainContent({
           )}
         </div>
       )}
-      {isNavExpanded && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 z-50" />
-      )}
       
       {/* File Upload Dialog */}
       <FileUploadDialog

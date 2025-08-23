@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { LeftNavigation } from "@/components/LeftNavigation";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { MainContent } from "@/components/MainContentIntegrated";
 import { useResponsive } from "@/hooks/use-responsive";
 import { sessionManager } from "@/lib/session";
@@ -58,21 +59,15 @@ export default function ChatGPTClone() {
 
   return (
     <div className="flex w-screen h-screen bg-[#212121] text-white relative overflow-hidden">
-      {/* Mobile backdrop */}
-      {isMobile && navExpanded && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 z-20"
-          onClick={closeNavigation}
+      <ErrorBoundary>
+        <LeftNavigation
+          isExpanded={navExpanded}
+          onToggle={toggleNavigation}
+          onClose={closeNavigation}
+          onImageClick={handleImageClick}
+          onNewChat={handleNewChat}
         />
-      )}
-      <LeftNavigation
-        isExpanded={navExpanded}
-        onToggle={toggleNavigation}
-        onClose={closeNavigation}
-        onImageClick={handleImageClick}
-        onNewChat={handleNewChat}
-        userId={userId}
-      />
+      </ErrorBoundary>
 
       {/* Chat area takes remaining space */}
       <div className="flex w-full justify-center">

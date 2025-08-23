@@ -1,12 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Edit, Search, User, X, ChevronDown, Image, Brain } from "lucide-react"
+import { Edit, Search, User, X, ChevronDown, Image, Brain, Library } from "lucide-react"
 import { SidebarToggle } from "./SidebarToggle"
 import { SearchDialog } from "./SearchDialog"
 import { ManageMemory } from "./ManageMemory"
 import { useResponsive } from "@/hooks/use-responsive"
+import { useChatHistory } from "@/hooks/use-chat-history"
 import { cn } from "@/lib/utils"
 import { useUser, SignInButton, UserButton } from "@clerk/nextjs"
 
@@ -16,31 +17,15 @@ interface LeftNavigationProps {
   onClose: () => void
   onImageClick: () => void
   onNewChat: () => void
-  userId?: string
 }
 
-const chatHistory = [
-  "Add Playwright MCP Server",
-  "Code for subarray difference", 
-  "Pagination Strategies Overview",
-  "New chat",
-  "IoT Smart Energy in Rural Areas",
-  "Semantic Matching Overview",
-  "Git pull tracking fix",
-  "Gmail Newsletter Creation Guide",
-  "Azure DevOps Repository Error",
-  "Cursor IDE Clarification",
-  "SQL Injection Learning App",
-  "Stored Procedures Overview",
-  "FastAPI React JSON Response",
-  "TCP/IP Encapsulation Order"
-]
 
-export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, onNewChat, userId }: LeftNavigationProps) {
+export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, onNewChat }: LeftNavigationProps) {
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [isMemoryOpen, setIsMemoryOpen] = useState(false)
   const { isMobile } = useResponsive()
-  const { user, isSignedIn } = useUser()
+  const { user, isSignedIn, isLoaded } = useUser()
+  const { getChatTitles, isLoading: chatHistoryLoading, error: chatHistoryError } = useChatHistory()
 
   const handleSearchClick = () => {
     setIsSearchOpen(true)
@@ -58,26 +43,55 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
     setIsMemoryOpen(false)
   }
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Ctrl/Cmd + B to toggle sidebar
+      if ((event.ctrlKey || event.metaKey) && event.key === 'b') {
+        event.preventDefault()
+        onToggle()
+      }
+      // Escape to close sidebar when expanded
+      if (event.key === 'Escape' && isExpanded) {
+        event.preventDefault()
+        onClose()
+      }
+      // Ctrl/Cmd + K to open search
+      if ((event.ctrlKey || event.metaKey) && event.key === 'k') {
+        event.preventDefault()
+        setIsSearchOpen(true)
+      }
+      // Ctrl/Cmd + N for new chat
+      if ((event.ctrlKey || event.metaKey) && event.key === 'n') {
+        event.preventDefault()
+        onNewChat()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isExpanded, onToggle, onClose, onNewChat])
+
 
   return (
     <>
-      {/* Backdrop when expanded */}
-      {isExpanded && (
+      {/* Backdrop when expanded - only on mobile */}
+      {isExpanded && isMobile && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-25 z-30"
+          className="fixed inset-0 bg-black bg-opacity-50 z-20"
           onClick={onClose}
         />
       )}
 
       <div className={cn(
-        "bg-[#0c0c0c] flex flex-col py-3 transition-all duration-300 ease-out relative z-40 h-full overflow-hidden",
+        "bg-[#0c0c0c] flex flex-col py-3 transition-all duration-300 ease-out relative overflow-hidden",
         isMobile 
           ? isExpanded 
-            ? "fixed left-0 top-0 w-80 z-50" 
-            : "w-12"
+            ? "fixed left-0 top-0 w-80 h-screen z-30" 
+            : "w-12 h-full"
           : isExpanded 
-            ? "w-60" 
-            : "w-12"
+            ? "w-60 h-full z-30" 
+            : "w-12 h-full"
       )}>
         {/* Top Section */}
         <div className={cn(
@@ -160,14 +174,25 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
 
             <Button 
               variant="ghost"
-              onClick={handleMemoryClick}
-              disabled={!isSignedIn}
               className={cn(
                 "text-white hover:bg-[#2f2f2f] transition-all duration-300 ease-out",
-                !isSignedIn && "opacity-50 cursor-not-allowed",
                 isExpanded ? "w-full justify-start h-9 px-3" : "w-8 h-8 p-0 mx-auto flex justify-center"
               )}
-              title={!isSignedIn ? "Sign in to access memories" : "Memories"}
+            >
+              <Library className="h-4 w-4 shrink-0" />
+              {isExpanded && <span className="ml-3 transition-opacity duration-300 ease-out">Library</span>}
+            </Button>
+
+            <Button 
+              variant="ghost"
+              onClick={handleMemoryClick}
+              disabled={!isLoaded || !isSignedIn}
+              className={cn(
+                "text-white hover:bg-[#2f2f2f] transition-all duration-300 ease-out",
+                (!isLoaded || !isSignedIn) && "opacity-50 cursor-not-allowed",
+                isExpanded ? "w-full justify-start h-9 px-3" : "w-8 h-8 p-0 mx-auto flex justify-center"
+              )}
+              title={!isLoaded ? "Loading..." : !isSignedIn ? "Sign in to access memories" : "Memories"}
             >
               <Brain className="h-4 w-4 shrink-0" />
               {isExpanded && <span className="ml-3 transition-opacity duration-300 ease-out">Memories</span>}
@@ -196,17 +221,27 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
         {isExpanded && (
           <div className="flex-1 overflow-y-auto px-3">
             <div className="text-xs text-gray-400 mb-2 font-medium">Chats</div>
-            <div className="space-y-1">
-              {chatHistory.map((chat, index) => (
-                <Button
-                  key={index}
-                  variant="ghost"
-                  className="w-full justify-start text-white hover:bg-[#2f2f2f] h-auto py-2 px-3 text-sm text-left"
-                >
-                  <span className="truncate">{chat}</span>
-                </Button>
-              ))}
-            </div>
+            {chatHistoryError ? (
+              <div className="text-red-400 text-sm px-3 py-2">Failed to load chat history</div>
+            ) : chatHistoryLoading ? (
+              <div className="space-y-1">
+                {[...Array(5)].map((_, i) => (
+                  <div key={i} className="bg-[#2f2f2f] animate-pulse h-9 rounded-md" />
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {getChatTitles().map((chat, index) => (
+                  <Button
+                    key={index}
+                    variant="ghost"
+                    className="w-full justify-start text-white hover:bg-[#2f2f2f] h-auto py-2 px-3 text-sm text-left"
+                  >
+                    <span className="truncate">{chat}</span>
+                  </Button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -272,11 +307,11 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
       <SearchDialog isOpen={isSearchOpen} onClose={handleSearchClose} />
       
       {/* Memory Management Dialog */}
-      {isSignedIn && userId && (
+      {isLoaded && isSignedIn && user?.id && (
         <ManageMemory 
           isOpen={isMemoryOpen} 
           onClose={handleMemoryClose} 
-          userId={userId} 
+          userId={user.id} 
         />
       )}
     </>
