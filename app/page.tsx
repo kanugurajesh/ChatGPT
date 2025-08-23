@@ -15,6 +15,7 @@ export default function ChatGPTClone() {
   const [showImageView, setShowImageView] = useState(false);
   const [currentImage, setCurrentImage] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>('default_user');
+  const [activeChatId, setActiveChatId] = useState<string | undefined>(undefined);
 
   const toggleNavigation = () => {
     setNavExpanded(!navExpanded);
@@ -48,8 +49,20 @@ export default function ChatGPTClone() {
   };
 
   const handleNewChat = () => {
+    setActiveChatId(undefined);
     if (typeof window !== "undefined" && (window as any).resetMainContentChat) {
       (window as any).resetMainContentChat();
+    }
+  };
+
+  const handleChatCreated = (chatId: string) => {
+    setActiveChatId(chatId);
+  };
+
+  const handleChatSelected = (chatId: string) => {
+    setActiveChatId(chatId);
+    if (isMobile) {
+      setNavExpanded(false); // Close sidebar on mobile
     }
   };
 
@@ -66,6 +79,8 @@ export default function ChatGPTClone() {
           onClose={closeNavigation}
           onImageClick={handleImageClick}
           onNewChat={handleNewChat}
+          onChatSelect={handleChatSelected}
+          activeChatId={activeChatId}
         />
       </ErrorBoundary>
 
@@ -78,6 +93,8 @@ export default function ChatGPTClone() {
           onCloseImageView={closeImageView}
           onSetImage={setCurrentImage}
           onNewChat={handleNewChat}
+          activeChatId={activeChatId}
+          onChatCreated={handleChatCreated}
         />
       </div>
     </div>

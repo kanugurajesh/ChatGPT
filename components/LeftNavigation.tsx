@@ -17,15 +17,17 @@ interface LeftNavigationProps {
   onClose: () => void
   onImageClick: () => void
   onNewChat: () => void
+  onChatSelect?: (chatId: string) => void
+  activeChatId?: string
 }
 
 
-export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, onNewChat }: LeftNavigationProps) {
+export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, onNewChat, onChatSelect, activeChatId }: LeftNavigationProps) {
   const [isSearchOpen, setIsSearchOpen] = useState(false)
   const [isMemoryOpen, setIsMemoryOpen] = useState(false)
   const { isMobile } = useResponsive()
   const { user, isSignedIn, isLoaded } = useUser()
-  const { getChatTitles, isLoading: chatHistoryLoading, error: chatHistoryError } = useChatHistory()
+  const { chatHistory, isLoading: chatHistoryLoading, error: chatHistoryError } = useChatHistory()
 
   const handleSearchClick = () => {
     setIsSearchOpen(true)
@@ -229,15 +231,34 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
                   <div key={i} className="bg-[#2f2f2f] animate-pulse h-9 rounded-md" />
                 ))}
               </div>
+            ) : !isSignedIn ? (
+              <div className="text-center text-gray-400 py-8">
+                <div className="text-sm mb-2">Sign in to view your chat history</div>
+                <div className="text-xs text-gray-500">Your conversations will be saved and accessible across devices</div>
+              </div>
+            ) : chatHistory.length === 0 ? (
+              <div className="text-center text-gray-400 py-8">
+                <div className="text-sm mb-2">No chats yet</div>
+                <div className="text-xs text-gray-500">Start a conversation to see it here</div>
+              </div>
             ) : (
               <div className="space-y-1">
-                {getChatTitles().map((chat, index) => (
+                {chatHistory.map((chat) => (
                   <Button
-                    key={index}
+                    key={chat.id}
                     variant="ghost"
-                    className="w-full justify-start text-white hover:bg-[#2f2f2f] h-auto py-2 px-3 text-sm text-left"
+                    onClick={() => onChatSelect?.(chat.id)}
+                    className={cn(
+                      "w-full justify-start text-white hover:bg-[#2f2f2f] h-auto py-2 px-3 text-sm text-left transition-colors",
+                      activeChatId === chat.id && "bg-[#2f2f2f]"
+                    )}
                   >
-                    <span className="truncate">{chat}</span>
+                    <div className="truncate flex-1">
+                      <div className="truncate font-medium">{chat.title}</div>
+                      <div className="text-xs text-gray-400 mt-0.5">
+                        {chat.messageCount || 0} messages • {new Date(chat.timestamp).toLocaleDateString()}
+                      </div>
+                    </div>
                   </Button>
                 ))}
               </div>

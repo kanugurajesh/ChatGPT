@@ -1,41 +1,254 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useUser } from '@clerk/nextjs'
 
 export interface ChatHistoryItem {
   id: string
   title: string
   timestamp: Date
+  createdAt: Date
+  updatedAt: Date
+  isArchived?: boolean
+  messageCount?: number
 }
 
-const defaultChatHistory: ChatHistoryItem[] = [
-  { id: '1', title: 'Plan mode in Claude Code', timestamp: new Date('2024-01-15') },
-  { id: '2', title: 'New chat', timestamp: new Date('2024-01-14') },
-  { id: '3', title: 'What is programming', timestamp: new Date('2024-01-13') },
-  { id: '4', title: 'New chat', timestamp: new Date('2024-01-12') },
-  { id: '5', title: 'Extract text from image', timestamp: new Date('2024-01-11') },
-  { id: '6', title: 'Greeting exchange', timestamp: new Date('2024-01-10') },
-  { id: '7', title: 'Create MacBook image', timestamp: new Date('2024-01-09') },
-  { id: '8', title: 'Image generation time', timestamp: new Date('2024-01-08') },
-  { id: '9', title: 'Add Playwright MCP Server', timestamp: new Date('2024-01-07') }
-]
+export interface CreateChatOptions {
+  title: string
+  initialMessage?: {
+    role: 'user' | 'assistant' | 'system'
+    content: string
+  }
+}
 
 export function useChatHistory() {
-  const [chatHistory, setChatHistory] = useState<ChatHistoryItem[]>(defaultChatHistory)
+  const [chatHistory, setChatHistory] = useState<ChatHistoryItem[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [hasMore, setHasMore] = useState(false)
+  const [total, setTotal] = useState(0)
+  
+  const { user, isSignedIn } = useUser()
 
-  const addChatToHistory = (title: string) => {
-    const newChat: ChatHistoryItem = {
-      id: Date.now().toString(),
-      title,
-      timestamp: new Date()
+  // Fetch chat history from API
+  const fetchChatHistory = useCallback(async (options?: {
+    limit?: number
+    offset?: number
+    includeArchived?: boolean
+    searchQuery?: string
+  }) => {
+    if (!isSignedIn || !user?.id) {
+      setChatHistory([])
+      return
     }
-    setChatHistory(prev => [newChat, ...prev])
+
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const params = new URLSearchParams()
+      if (options?.limit) params.set('limit', options.limit.toString())
+      if (options?.offset) params.set('offset', options.offset.toString())
+      if (options?.includeArchived) params.set('includeArchived', 'true')
+      if (options?.searchQuery) params.set('search', options.searchQuery)
+
+      const response = await fetch(`/api/chats?${params}`, {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch chats: ${response.status}`)
+      }
+
+      const data = await response.json()
+      
+      const formattedChats: ChatHistoryItem[] = data.chats.map((chat: any) => ({
+        id: chat.id,
+        title: chat.title,
+        timestamp: new Date(chat.updatedAt),
+        createdAt: new Date(chat.createdAt),
+        updatedAt: new Date(chat.updatedAt),
+        isArchived: chat.isArchived,
+        messageCount: chat.metadata?.totalMessages || 0,
+      }))
+
+      setChatHistory(formattedChats)
+      setHasMore(data.hasMore)
+      setTotal(data.total)
+    } catch (err) {
+      console.error('Error fetching chat history:', err)
+      setError(err instanceof Error ? err.message : 'Failed to load chat history')
+      setChatHistory([])
+    } finally {
+      setIsLoading(false)
+    }
+  }, [isSignedIn, user?.id])
+
+  // Create a new chat
+  const createNewChat = useCallback(async (options: CreateChatOptions): Promise<string | null> => {
+    if (!isSignedIn || !user?.id) {
+      setError('Please sign in to create a chat')
+      return null
+    }
+
+    try {
+      const response = await fetch('/api/chats', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(options),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to create chat: ${response.status}`)
+      }
+
+      const newChat = await response.json()
+      
+      // Add to local state immediately for better UX
+      const formattedChat: ChatHistoryItem = {
+        id: newChat.id,
+        title: newChat.title,
+        timestamp: new Date(newChat.updatedAt),
+        createdAt: new Date(newChat.createdAt),
+        updatedAt: new Date(newChat.updatedAt),
+        isArchived: newChat.isArchived,
+        messageCount: newChat.messages?.length || 0,
+      }
+      
+      setChatHistory(prev => [formattedChat, ...prev])
+      setTotal(prev => prev + 1)
+      
+      return newChat.id
+    } catch (err) {
+      console.error('Error creating chat:', err)
+      setError(err instanceof Error ? err.message : 'Failed to create chat')
+      return null
+    }
+  }, [isSignedIn, user?.id])
+
+  // Delete a chat
+  const deleteChat = useCallback(async (chatId: string): Promise<boolean> => {
+    if (!isSignedIn || !user?.id) {
+      return false
+    }
+
+    try {
+      const response = await fetch(`/api/chats/${chatId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to delete chat: ${response.status}`)
+      }
+
+      // Remove from local state
+      setChatHistory(prev => prev.filter(chat => chat.id !== chatId))
+      setTotal(prev => prev - 1)
+      
+      return true
+    } catch (err) {
+      console.error('Error deleting chat:', err)
+      setError(err instanceof Error ? err.message : 'Failed to delete chat')
+      return false
+    }
+  }, [isSignedIn, user?.id])
+
+  // Update chat title
+  const updateChatTitle = useCallback(async (chatId: string, newTitle: string): Promise<boolean> => {
+    if (!isSignedIn || !user?.id) {
+      return false
+    }
+
+    try {
+      const response = await fetch(`/api/chats/${chatId}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ title: newTitle }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to update chat: ${response.status}`)
+      }
+
+      const updatedChat = await response.json()
+      
+      // Update local state
+      setChatHistory(prev => 
+        prev.map(chat => 
+          chat.id === chatId 
+            ? { ...chat, title: updatedChat.title, updatedAt: new Date(updatedChat.updatedAt) }
+            : chat
+        )
+      )
+      
+      return true
+    } catch (err) {
+      console.error('Error updating chat title:', err)
+      setError(err instanceof Error ? err.message : 'Failed to update chat title')
+      return false
+    }
+  }, [isSignedIn, user?.id])
+
+  // Search chats
+  const searchChats = useCallback(async (query: string, limit = 10) => {
+    if (!isSignedIn || !user?.id || !query.trim()) {
+      return []
+    }
+
+    try {
+      const params = new URLSearchParams({
+        q: query.trim(),
+        limit: limit.toString()
+      })
+
+      const response = await fetch(`/api/chats/search?${params}`, {
+        method: 'GET',
+        credentials: 'include',
+      })
+
+      if (!response.ok) {
+        throw new Error(`Search failed: ${response.status}`)
+      }
+
+      const data = await response.json()
+      return data.results.map((chat: any) => ({
+        id: chat.id,
+        title: chat.title,
+        timestamp: new Date(chat.updatedAt),
+        createdAt: new Date(chat.createdAt),
+        updatedAt: new Date(chat.updatedAt),
+        isArchived: chat.isArchived,
+        messageCount: chat.metadata?.totalMessages || 0,
+      }))
+    } catch (err) {
+      console.error('Error searching chats:', err)
+      return []
+    }
+  }, [isSignedIn, user?.id])
+
+  // Load initial chat history when component mounts or user signs in
+  useEffect(() => {
+    fetchChatHistory()
+  }, [fetchChatHistory])
+
+  // Helper functions for backward compatibility
+  const addChatToHistory = (title: string) => {
+    createNewChat({ title })
   }
 
   const removeChatFromHistory = (id: string) => {
-    setChatHistory(prev => prev.filter(chat => chat.id !== id))
+    deleteChat(id)
   }
 
   const getChatTitles = () => {
@@ -46,8 +259,22 @@ export function useChatHistory() {
     chatHistory,
     isLoading,
     error,
+    hasMore,
+    total,
+    
+    // CRUD operations
+    createNewChat,
+    deleteChat,
+    updateChatTitle,
+    fetchChatHistory,
+    searchChats,
+    
+    // Backward compatibility
     addChatToHistory,
     removeChatFromHistory,
-    getChatTitles
+    getChatTitles,
+    
+    // Clear error
+    clearError: () => setError(null),
   }
 }

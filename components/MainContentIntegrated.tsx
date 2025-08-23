@@ -23,6 +23,8 @@ import { FileUploadDialog } from "./FileUploadDialog";
 import { useResponsive } from "@/hooks/use-responsive";
 import { sessionManager } from "@/lib/session";
 import { useUser } from "@clerk/nextjs";
+import { useActiveChat } from "@/hooks/use-active-chat";
+import { useChatHistory } from "@/hooks/use-chat-history";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
@@ -52,6 +54,8 @@ interface MainContentProps {
   onCloseImageView: () => void;
   onSetImage: (image: string | null) => void;
   onNewChat: () => void;
+  activeChatId?: string;
+  onChatCreated?: (chatId: string) => void;
 }
 
 const MAX_CONTEXT = 20;
@@ -63,10 +67,11 @@ export function MainContent({
   onCloseImageView,
   onSetImage,
   onNewChat,
+  activeChatId,
+  onChatCreated,
 }: MainContentProps) {
   const [isTemporaryChat, setIsTemporaryChat] = useState(false);
   const [selectedModel, setSelectedModel] = useState("chatgpt");
-  const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
@@ -79,9 +84,33 @@ export function MainContent({
   const { isMobile } = useResponsive();
   const { user, isSignedIn, isLoaded } = useUser();
 
+  // MongoDB-powered chat management
+  const { activeChat, isLoading: chatLoading, addMessage, createNewChat, updateTitle, generateTitle, loadChat } = useActiveChat(activeChatId);
+  const { fetchChatHistory } = useChatHistory();
+
+  // Local state for real-time streaming (hybrid approach)
+  const [streamingMessages, setStreamingMessages] = useState<Message[]>([]);
+  const [isStreaming, setIsStreaming] = useState(false);
+
+  // Combine MongoDB messages with streaming messages for display
+  const messages: Message[] = isStreaming 
+    ? streamingMessages
+    : (activeChat?.messages.map(msg => ({
+        id: msg.id,
+        content: msg.content,
+        role: msg.role,
+        timestamp: msg.timestamp,
+      })) || []);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Reset streaming state when active chat changes
+  useEffect(() => {
+    setIsStreaming(false);
+    setStreamingMessages([]);
+  }, [activeChatId]);
 
   useEffect(() => {
     // Initialize user ID - use Clerk user ID if authenticated, otherwise session ID
@@ -95,12 +124,6 @@ export function MainContent({
     }
   }, [user, isSignedIn, isLoaded]);
 
-  function getContextMessages(msgArr: Message[]) {
-    return msgArr.slice(-MAX_CONTEXT).map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
-  }
 
   // Handle file uploads
   const handleFilesSelected = async (attachments: FileAttachment[], messageText?: string) => {
@@ -128,29 +151,62 @@ export function MainContent({
     await handleSendMessage(content, attachments);
   };
 
-  // Streaming API call
+  // Streaming API call with MongoDB persistence
   const handleSendMessage = async (content: string = inputValue, attachments?: FileAttachment[]) => {
     if (!content.trim() && !attachments?.length) return;
+    if (!isSignedIn) {
+      console.error('User must be signed in to send messages');
+      return;
+    }
+    
     setIsLoading(true);
-
-    const newMessage: Message = {
-      id: crypto.randomUUID(),
-      content: content.trim(),
-      role: "user",
-      timestamp: new Date(),
-      attachments: attachments,
-    };
-    const updatedMessages = [...messages, newMessage];
-    setMessages(updatedMessages);
     setInputValue("");
 
     try {
+      let currentChatId = activeChatId;
+      
+      // Create new chat if this is the first message
+      if (!activeChat) {
+        const title = generateTitle(content.trim());
+        currentChatId = await createNewChat(title, {
+          role: 'user',
+          content: content.trim()
+        });
+        
+        if (!currentChatId) {
+          throw new Error('Failed to create new chat');
+        }
+        
+        // Notify parent component about new chat
+        onChatCreated?.(currentChatId);
+        
+        // Refresh chat history in sidebar
+        fetchChatHistory();
+        
+        // Continue with AI response since the initial message was already added
+      } else {
+        // Add user message to existing chat
+        await addMessage('user', content.trim(), { attachments }, true);
+      }
+
+      // Get current messages for context
+      const contextMessages = messages.slice(-MAX_CONTEXT).map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+
+      // Add the new user message to context
+      contextMessages.push({
+        role: 'user',
+        content: content.trim(),
+      });
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
-          messages: getContextMessages(updatedMessages),
-          userId: userId,
+          messages: contextMessages,
+          userId: user?.id || userId,
           attachments: attachments
         }),
       });
@@ -159,28 +215,63 @@ export function MainContent({
       const reader = response.body.getReader();
       let streamingText = "";
 
-      const assistantId = crypto.randomUUID();
-      setMessages([
-        ...updatedMessages,
-        {
-          id: assistantId,
-          content: "",
-          role: "assistant",
-          timestamp: new Date(),
-        },
-      ]);
+      // Set up streaming display with current messages + new user message
+      const currentMessages = activeChat?.messages.map(msg => ({
+        id: msg.id,
+        content: msg.content,
+        role: msg.role,
+        timestamp: msg.timestamp,
+      })) || [];
 
+      const userMessage: Message = {
+        id: crypto.randomUUID(),
+        content: content.trim(),
+        role: 'user',
+        timestamp: new Date(),
+      };
+
+      const assistantId = crypto.randomUUID();
+      const assistantMessage: Message = {
+        id: assistantId,
+        content: '',
+        role: 'assistant',
+        timestamp: new Date(),
+      };
+
+      // Start streaming mode with current messages + new messages
+      setIsStreaming(true);
+      
+      // For new chats, start with just the user message
+      // For existing chats, include all previous messages
+      const streamingBase = activeChat ? [...currentMessages, userMessage] : [userMessage];
+      setStreamingMessages([...streamingBase, assistantMessage]);
+
+      // Stream the response with real-time updates
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         const chunk = new TextDecoder().decode(value);
         streamingText += chunk;
 
-        setMessages((msgs) =>
-          msgs.map((m) =>
-            m.id === assistantId ? { ...m, content: streamingText } : m
+        // Update the streaming message content in real-time
+        setStreamingMessages(prev => 
+          prev.map(msg => 
+            msg.id === assistantId 
+              ? { ...msg, content: streamingText }
+              : msg
           )
         );
+      }
+
+      // End streaming mode
+      setIsStreaming(false);
+
+      // Add the complete assistant message to MongoDB
+      if (streamingText.trim()) {
+        await addMessage('assistant', streamingText.trim(), { 
+          model: selectedModel,
+          tokens: streamingText.length 
+        }, false);
       }
 
       // Store memory after conversation is complete (only for authenticated users)
@@ -216,18 +307,23 @@ export function MainContent({
           setIsStoringMemory(false);
         }
       }
+
+      // Refresh chat history in sidebar after successful conversation
+      fetchChatHistory();
+      
     } catch (err) {
-      setMessages((msgs) => [
-        ...updatedMessages,
-        {
-          id: crypto.randomUUID(),
-          content: "Error getting response from Gemini.",
-          role: "assistant",
-          timestamp: new Date(),
-        },
-      ]);
+      console.error('Error in chat flow:', err);
+      
+      // End streaming mode and show error
+      setIsStreaming(false);
+      
+      // Add error message to chat if we have an active chat
+      if (currentChatId) {
+        await addMessage('assistant', 'Sorry, I encountered an error. Please try again.', { error: true }, false);
+      }
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   const handleEditMessage = (messageId: string, content: string) => {
@@ -240,16 +336,14 @@ export function MainContent({
     const messageIndex = messages.findIndex((m) => m.id === messageId);
     if (messageIndex === -1) return;
 
-    const updatedMessages = [...messages];
-    updatedMessages[messageIndex] = {
-      ...messages[messageIndex],
-      content: editContent.trim(),
-    };
-    setMessages(updatedMessages);
+    // For now, we'll regenerate from the edited message
+    // This is a simplified approach - in a full implementation,
+    // you might want to update the message in the database directly
     setEditingMessageId(null);
     setEditContent("");
 
     if (messages[messageIndex].role === "user") {
+      // Regenerate response from this point
       await handleSendMessage(editContent.trim());
     }
   };
@@ -290,11 +384,16 @@ export function MainContent({
   };
 
   const resetChat = () => {
-    setMessages([]);
+    // Reset local state
     setInputValue("");
     setIsLoading(false);
     setEditingMessageId(null);
     setEditContent("");
+    setIsStreaming(false);
+    setStreamingMessages([]);
+    
+    // Trigger new chat creation on next message
+    onNewChat();
   };
 
   const handleTemporaryChatToggle = (enabled: boolean) => {
@@ -408,7 +507,10 @@ export function MainContent({
                           {isStoringMemory && <span>• Saving memory...</span>}
                         </div>
                       ) : (
-                        <span>Guest mode - Sign in to save memories</span>
+                        <div className="flex flex-col items-center gap-2">
+                          <span>⚠️ Please sign in to save and access your chat history</span>
+                          <span className="text-xs text-gray-600">Your conversations will be lost without signing in</span>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -664,7 +766,7 @@ export function MainContent({
                         {isStoringMemory && <span>• Saving memory...</span>}
                       </div>
                     ) : (
-                      <span>Guest mode - Sign in to save memories</span>
+                      <span>⚠️ Sign in to save your chat history</span>
                     )}
                   </div>
                 </div>
