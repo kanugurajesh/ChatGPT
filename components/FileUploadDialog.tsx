@@ -11,6 +11,8 @@ interface FileUploadDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onFilesSelected: (files: FileAttachment[], message?: string) => void;
+  chatId?: string;
+  messageId?: string;
 }
 
 interface FileAttachment {
@@ -21,7 +23,7 @@ interface FileAttachment {
   size: number;
 }
 
-export function FileUploadDialog({ isOpen, onClose, onFilesSelected }: FileUploadDialogProps) {
+export function FileUploadDialog({ isOpen, onClose, onFilesSelected, chatId, messageId }: FileUploadDialogProps) {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [message, setMessage] = useState("");
   const [isUploading, setIsUploading] = useState(false);
@@ -74,9 +76,11 @@ export function FileUploadDialog({ isOpen, onClose, onFilesSelected }: FileUploa
     event.preventDefault();
   };
 
-  const uploadToCloudinary = async (file: File): Promise<string> => {
+  const uploadToCloudinary = async (file: File): Promise<{url: string, fileId: string, metadata: any}> => {
     const formData = new FormData();
     formData.append('file', file);
+    if (chatId) formData.append('chatId', chatId);
+    if (messageId) formData.append('messageId', messageId);
     
     const response = await fetch('/api/upload', {
       method: 'POST',
@@ -84,11 +88,16 @@ export function FileUploadDialog({ isOpen, onClose, onFilesSelected }: FileUploa
     });
     
     if (!response.ok) {
-      throw new Error('Failed to upload file');
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to upload file');
     }
     
     const data = await response.json();
-    return data.url;
+    return {
+      url: data.url,
+      fileId: data.fileId,
+      metadata: data.metadata
+    };
   };
 
   const handleSend = async () => {
@@ -97,13 +106,15 @@ export function FileUploadDialog({ isOpen, onClose, onFilesSelected }: FileUploa
     setIsUploading(true);
     try {
       const uploadPromises = selectedFiles.map(async (file) => {
-        const url = await uploadToCloudinary(file);
+        const result = await uploadToCloudinary(file);
         return {
           type: 'file' as const,
           mediaType: file.type,
-          url,
+          url: result.url,
           name: file.name,
           size: file.size,
+          fileId: result.fileId,
+          metadata: result.metadata
         };
       });
 
@@ -116,7 +127,8 @@ export function FileUploadDialog({ isOpen, onClose, onFilesSelected }: FileUploa
       onClose();
     } catch (error) {
       console.error('Upload failed:', error);
-      // Handle error (you might want to show a toast notification)
+      // Show user-friendly error
+      alert(`Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsUploading(false);
     }

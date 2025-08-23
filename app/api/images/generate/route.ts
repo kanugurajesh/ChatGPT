@@ -1,6 +1,9 @@
 import { GoogleGenAI, Modality } from "@google/genai";
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { uploadBase64Image } from '@/lib/cloudinary-server';
+import { GeneratedImage } from '@/lib/models/Image';
+import { connectToMongoDB } from '@/lib/mongodb';
 
 export async function POST(req: NextRequest) {
   try {
@@ -38,13 +41,20 @@ export async function POST(req: NextRequest) {
     let generatedText = '';
     let imageData = null;
 
-    // Process the response parts
-    for (const part of response.candidates[0].content.parts) {
-      if (part.text) {
-        generatedText += part.text;
-      } else if (part.inlineData) {
-        imageData = part.inlineData.data;
+    // Process the response parts with proper null checks
+    if (response.candidates && response.candidates[0] && response.candidates[0].content && response.candidates[0].content.parts) {
+      for (const part of response.candidates[0].content.parts) {
+        if (part.text) {
+          generatedText += part.text;
+        } else if (part.inlineData) {
+          imageData = part.inlineData.data;
+        }
       }
+    } else {
+      console.error('Unexpected response structure:', JSON.stringify(response, null, 2));
+      return NextResponse.json({ 
+        error: 'Unexpected API response structure' 
+      }, { status: 500 });
     }
 
     if (!imageData) {
@@ -54,14 +64,53 @@ export async function POST(req: NextRequest) {
       }, { status: 500 });
     }
 
-    // Return the generated image data and any accompanying text
+    // Upload to Cloudinary
+    const cloudinaryResult = await uploadBase64Image(imageData, {
+      folder: 'ai-generated',
+      tags: ['ai-generated', 'chat-image', userId],
+    });
+
+    // Connect to MongoDB and save image metadata
+    await connectToMongoDB();
+    
+    const generatedImage = new GeneratedImage({
+      id: new Date().getTime().toString() + '-' + Math.random().toString(36).substr(2, 9),
+      userId: userId,
+      prompt: prompt.trim(),
+      cloudinaryUrl: cloudinaryResult.secure_url,
+      cloudinaryPublicId: cloudinaryResult.public_id,
+      chatId: chatId,
+      generatedAt: new Date(),
+      generationSettings: {
+        model: 'gemini-2.0-flash-preview-image-generation',
+        timestamp: new Date().toISOString(),
+      },
+      metadata: {
+        width: cloudinaryResult.width,
+        height: cloudinaryResult.height,
+        format: cloudinaryResult.format,
+        fileSize: cloudinaryResult.bytes,
+      },
+    });
+
+    await generatedImage.save();
+
+    // Return the Cloudinary URL and metadata
     return NextResponse.json({
       success: true,
-      imageData: imageData, // Base64 encoded image
+      imageUrl: cloudinaryResult.secure_url,
+      cloudinaryPublicId: cloudinaryResult.public_id,
+      imageId: generatedImage.id,
       text: generatedText,
       prompt: prompt.trim(),
       chatId: chatId,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      metadata: {
+        width: cloudinaryResult.width,
+        height: cloudinaryResult.height,
+        format: cloudinaryResult.format,
+        fileSize: cloudinaryResult.bytes,
+      }
     });
 
   } catch (error) {
@@ -77,6 +126,12 @@ export async function POST(req: NextRequest) {
       }
       if (error.message.includes('content policy')) {
         return NextResponse.json({ error: 'Content violates policy' }, { status: 400 });
+      }
+      if (error.message.includes('Cloudinary')) {
+        return NextResponse.json({ error: 'Failed to upload image' }, { status: 500 });
+      }
+      if (error.message.includes('MongoDB') || error.message.includes('database')) {
+        return NextResponse.json({ error: 'Failed to save image metadata' }, { status: 500 });
       }
     }
 

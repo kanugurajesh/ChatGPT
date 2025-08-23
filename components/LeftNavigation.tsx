@@ -171,7 +171,7 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
               )}
             >
               <Image className="h-4 w-4 shrink-0" />
-              {isExpanded && <span className="ml-3 transition-opacity duration-300 ease-out">Generate</span>}
+              {isExpanded && <span className="ml-3 transition-opacity duration-300 ease-out">Gallery</span>}
             </Button>
 
 

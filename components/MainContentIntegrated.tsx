@@ -129,7 +129,7 @@ export function MainContent({
   const [backgroundMemoryTasks, setBackgroundMemoryTasks] = useState<string[]>([]);
   const [isSavingToMongoDB, setIsSavingToMongoDB] = useState(false);
   const [isFileDialogOpen, setIsFileDialogOpen] = useState(false);
-  const [generatedImages, setGeneratedImages] = useState<{[messageId: string]: string}>({});
+  const [generatedImages, setGeneratedImages] = useState<{[messageId: string]: {url: string, publicId: string}}>({});
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -262,7 +262,7 @@ export function MainContent({
   };
 
   // Image generation function
-  const handleImageGeneration = async (prompt: string): Promise<string | null> => {
+  const handleImageGeneration = async (prompt: string): Promise<{url: string, publicId: string, imageId: string} | null> => {
     try {
       setIsGeneratingImage(true);
       
@@ -282,8 +282,12 @@ export function MainContent({
         return null;
       }
 
-      if (result.success && result.imageData) {
-        return result.imageData; // Base64 encoded image
+      if (result.success && result.imageUrl) {
+        return {
+          url: result.imageUrl,
+          publicId: result.cloudinaryPublicId,
+          imageId: result.imageId
+        };
       }
 
       return null;
@@ -376,13 +380,13 @@ export function MainContent({
         setIsStreaming(true);
         
         // Generate image
-        const imageData = await handleImageGeneration(content.trim());
+        const imageResult = await handleImageGeneration(content.trim());
         
-        if (imageData) {
+        if (imageResult) {
           // Store the generated image
           setGeneratedImages(prev => ({
             ...prev,
-            [assistantId]: imageData
+            [assistantId]: { url: imageResult.url, publicId: imageResult.publicId }
           }));
           
           // Update assistant message with success text and image
@@ -411,7 +415,7 @@ export function MainContent({
         setIsStreaming(false);
 
         // Save to MongoDB in background
-        if (imageData || !imageData) { // Save regardless of success/failure
+        if (imageResult || !imageResult) { // Save regardless of success/failure
           setIsSavingToMongoDB(true);
           
           const backgroundSave = async () => {
@@ -425,7 +429,7 @@ export function MainContent({
               await addMessage('assistant', assistantMessage.content, { 
                 model: selectedModel,
                 tokens: assistantMessage.content.length,
-                imageGenerated: !!imageData
+                imageGenerated: !!imageResult
               }, false);
               
               console.log('MongoDB background save completed successfully');
@@ -647,12 +651,12 @@ export function MainContent({
 
       if (isImageRequest) {
         // Handle image regeneration
-        const imageData = await handleImageGeneration(userMessage.content);
+        const imageResult = await handleImageGeneration(userMessage.content);
         
-        if (imageData) {
+        if (imageResult) {
           setGeneratedImages(prev => ({
             ...prev,
-            [newAssistantId]: imageData
+            [newAssistantId]: { url: imageResult.url, publicId: imageResult.publicId }
           }));
           
           newAssistantMessage.content = `I've regenerated an image based on your request: "${userMessage.content}"`;
@@ -675,7 +679,7 @@ export function MainContent({
           await addMessage('assistant', newAssistantMessage.content, { 
             model: selectedModel,
             tokens: newAssistantMessage.content.length,
-            imageGenerated: !!imageData,
+            imageGenerated: !!imageResult,
             regenerated: true
           }, false);
         } catch (error) {
@@ -1055,11 +1059,11 @@ export function MainContent({
                             <div className="mb-4">
                               <div className="bg-gray-800 rounded-lg p-4 max-w-lg">
                                 <img
-                                  src={`data:image/png;base64,${generatedImages[message.id]}`}
+                                  src={generatedImages[message.id].url}
                                   alt="Generated image"
                                   className="w-full h-auto rounded-lg"
                                   onClick={() => {
-                                    onSetImage(`data:image/png;base64,${generatedImages[message.id]}`);
+                                    onSetImage(generatedImages[message.id].url);
                                   }}
                                   style={{ cursor: 'pointer' }}
                                 />
@@ -1067,7 +1071,7 @@ export function MainContent({
                                   <Button
                                     onClick={async () => {
                                       try {
-                                        const imageUrl = `data:image/png;base64,${generatedImages[message.id]}`;
+                                        const imageUrl = generatedImages[message.id].url;
                                         const response = await fetch(imageUrl);
                                         const blob = await response.blob();
                                         const url = URL.createObjectURL(blob);

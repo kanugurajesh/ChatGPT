@@ -1,19 +1,46 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { v2 as cloudinary } from 'cloudinary';
-
-cloudinary.config({
-  cloud_name: process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+import { auth } from '@clerk/nextjs/server';
+import { uploadFileBuffer } from '@/lib/cloudinary-server';
+import { UserUploadedImage } from '@/lib/models/Image';
+import { connectToMongoDB } from '@/lib/mongodb';
 
 export async function POST(req: NextRequest) {
   try {
+    // Check authentication
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
     const formData = await req.formData();
     const file = formData.get('file') as File;
+    const chatId = formData.get('chatId') as string;
+    const messageId = formData.get('messageId') as string;
     
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
+    }
+
+    // Validate file size (max 10MB)
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    if (file.size > maxSize) {
+      return NextResponse.json({ 
+        error: 'File size too large. Maximum size is 10MB.' 
+      }, { status: 400 });
+    }
+
+    // Validate file type
+    const allowedTypes = [
+      'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+      'application/pdf', 'text/plain', 'text/csv',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/msword'
+    ];
+    
+    if (!allowedTypes.includes(file.type)) {
+      return NextResponse.json({ 
+        error: 'File type not supported. Supported types: images, PDF, text files, Word documents.' 
+      }, { status: 400 });
     }
 
     // Convert file to buffer
@@ -21,27 +48,69 @@ export async function POST(req: NextRequest) {
     const buffer = Buffer.from(bytes);
 
     // Upload to Cloudinary
-    const result = await new Promise((resolve, reject) => {
-      cloudinary.uploader.upload_stream(
-        {
-          resource_type: 'auto',
-          folder: 'chatgpt-uploads',
-          use_filename: true,
-          unique_filename: true,
-        },
-        (error, result) => {
-          if (error) reject(error);
-          else resolve(result);
-        }
-      ).end(buffer);
+    const cloudinaryResult = await uploadFileBuffer(
+      buffer,
+      file.name,
+      file.type,
+      {
+        folder: 'chat-uploads',
+        tags: ['user-upload', 'chat-file', userId],
+      }
+    );
+
+    // Connect to MongoDB and save file metadata
+    await connectToMongoDB();
+    
+    const userUploadedImage = new UserUploadedImage({
+      userId: userId,
+      fileName: file.name,
+      originalName: file.name,
+      cloudinaryUrl: cloudinaryResult.secure_url,
+      cloudinaryPublicId: cloudinaryResult.public_id,
+      chatId: chatId || undefined,
+      messageId: messageId || undefined,
+      uploadedAt: new Date(),
+      fileSize: file.size,
+      mimeType: file.type,
+      metadata: {
+        width: cloudinaryResult.width,
+        height: cloudinaryResult.height,
+        format: cloudinaryResult.format,
+      },
     });
 
+    await userUploadedImage.save();
+
     return NextResponse.json({ 
-      url: (result as any).secure_url,
-      public_id: (result as any).public_id 
+      success: true,
+      url: cloudinaryResult.secure_url,
+      public_id: cloudinaryResult.public_id,
+      fileId: userUploadedImage.id,
+      metadata: {
+        fileName: file.name,
+        fileSize: file.size,
+        mimeType: file.type,
+        width: cloudinaryResult.width,
+        height: cloudinaryResult.height,
+        format: cloudinaryResult.format,
+        uploadedAt: new Date().toISOString(),
+      }
     });
   } catch (error) {
     console.error('Upload error:', error);
-    return NextResponse.json({ error: 'Upload failed' }, { status: 500 });
+    
+    if (error instanceof Error) {
+      if (error.message.includes('Cloudinary')) {
+        return NextResponse.json({ error: 'Failed to upload file' }, { status: 500 });
+      }
+      if (error.message.includes('MongoDB') || error.message.includes('database')) {
+        return NextResponse.json({ error: 'Failed to save file metadata' }, { status: 500 });
+      }
+    }
+    
+    return NextResponse.json({ 
+      error: 'Upload failed',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 });
   }
 }

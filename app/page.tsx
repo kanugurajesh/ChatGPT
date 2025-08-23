@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { LeftNavigation } from "@/components/LeftNavigation";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { MainContent } from "@/components/MainContentIntegrated";
+import { ImageGallery } from "@/components/ImageGallery";
 import { useResponsive } from "@/hooks/use-responsive";
 import { sessionManager } from "@/lib/session";
 import { useUser } from "@clerk/nextjs";
@@ -13,6 +14,7 @@ export default function ChatGPTClone() {
   const { user, isLoaded } = useUser();
   const [navExpanded, setNavExpanded] = useState(false);
   const [showImageView, setShowImageView] = useState(false);
+  const [showGalleryView, setShowGalleryView] = useState(false);
   const [currentImage, setCurrentImage] = useState<string | null>(null);
   const [userId, setUserId] = useState<string>('default_user');
   const [activeChatId, setActiveChatId] = useState<string | undefined>(undefined);
@@ -35,17 +37,18 @@ export default function ChatGPTClone() {
 
   // Auto-close nav on mobile when view changes
   useEffect(() => {
-    if (isMobile && showImageView) {
+    if (isMobile && (showImageView || showGalleryView)) {
       setNavExpanded(false);
     }
-  }, [showImageView, isMobile]);
+  }, [showImageView, showGalleryView, isMobile]);
 
   const closeNavigation = () => {
     setNavExpanded(false);
   };
 
   const handleImageClick = () => {
-    setShowImageView(true);
+    setShowGalleryView(true);
+    setShowImageView(false);
   };
 
   const handleNewChat = () => {
@@ -67,6 +70,10 @@ export default function ChatGPTClone() {
     setShowImageView(false);
   };
 
+  const closeGalleryView = () => {
+    setShowGalleryView(false);
+  };
+
 
   return (
     <div className="flex w-screen h-screen bg-[#212121] text-white relative overflow-hidden">
@@ -84,16 +91,22 @@ export default function ChatGPTClone() {
 
       {/* Main content area takes remaining space */}
       <div className="flex w-full justify-center">
-        <MainContent
-          isNavExpanded={navExpanded}
-          showImageView={showImageView}
-          currentImage={currentImage}
-          onCloseImageView={closeImageView}
-          onSetImage={setCurrentImage}
-          onNewChat={handleNewChat}
-          activeChatId={activeChatId}
-          onChatCreated={handleChatCreated}
-        />
+        {showGalleryView ? (
+          <ImageGallery
+            onClose={closeGalleryView}
+          />
+        ) : (
+          <MainContent
+            isNavExpanded={navExpanded}
+            showImageView={showImageView}
+            currentImage={currentImage}
+            onCloseImageView={closeImageView}
+            onSetImage={setCurrentImage}
+            onNewChat={handleNewChat}
+            activeChatId={activeChatId}
+            onChatCreated={handleChatCreated}
+          />
+        )}
       </div>
     </div>
   );

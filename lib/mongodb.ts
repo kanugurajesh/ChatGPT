@@ -46,3 +46,4 @@ async function connectDB() {
 }
 
 export default connectDB;
+export const connectToMongoDB = connectDB;
