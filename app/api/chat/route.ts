@@ -6,9 +6,18 @@ import { auth } from '@clerk/nextjs/server';
 
 const MAX_CONTEXT = 20;
 
+interface FileAttachment {
+  type: 'file';
+  mediaType: string;
+  url: string;
+  name: string;
+  size: number;
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json();
   const history = (Array.isArray(body?.messages) ? body.messages : []) as { role: string, content: string }[];
+  const attachments = body?.attachments as FileAttachment[] | undefined;
   const trimmedHistory = history.slice(-MAX_CONTEXT);
   
   // Get authenticated user ID from Clerk, fallback to request body for unauthenticated users
@@ -103,9 +112,34 @@ Please use this context to provide more personalized and contextual responses wh
     }
   }
 
+  // Convert to multimodal format if attachments exist
+  let multimodalMessages = messages;
+  if (attachments && attachments.length > 0 && messages.length > 0) {
+    const lastMessage = messages[messages.length - 1];
+    if (lastMessage.role === 'user') {
+      // Convert files to the format expected by AI SDK
+      const fileParts = attachments.map(attachment => ({
+        type: 'image' as const, // Use 'image' for Gemini multimodal
+        image: attachment.url,
+      }));
+      
+      // Create multimodal message
+      multimodalMessages = [
+        ...messages.slice(0, -1),
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: lastMessage.content },
+            ...fileParts
+          ]
+        }
+      ];
+    }
+  }
+
   const { textStream } = await streamText({
     model,
-    messages,
+    messages: multimodalMessages,
   });
 
   // Note: Memory storage is now handled client-side after conversation completes

@@ -14,10 +14,12 @@ import {
   Share,
   MoreHorizontal,
   Download,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ImageGenerationView } from "./ImageGenerationView";
 import { ChatHeader } from "./ChatHeader";
+import { FileUploadDialog } from "./FileUploadDialog";
 import { useResponsive } from "@/hooks/use-responsive";
 import { sessionManager } from "@/lib/session";
 import { useUser } from "@clerk/nextjs";
@@ -26,12 +28,21 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/github-dark.css';
 
+interface FileAttachment {
+  type: 'file';
+  mediaType: string;
+  url: string;
+  name: string;
+  size: number;
+}
+
 interface Message {
   id: string;
   content: string;
   role: "user" | "assistant";
   timestamp: Date;
   isEditing?: boolean;
+  attachments?: FileAttachment[];
 }
 
 interface MainContentProps {
@@ -62,6 +73,7 @@ export function MainContent({
   const [editContent, setEditContent] = useState("");
   const [userId, setUserId] = useState<string>('default_user');
   const [isStoringMemory, setIsStoringMemory] = useState(false);
+  const [isFileDialogOpen, setIsFileDialogOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const { isMobile } = useResponsive();
@@ -90,9 +102,35 @@ export function MainContent({
     }));
   }
 
+  // Handle file uploads
+  const handleFilesSelected = async (attachments: FileAttachment[], messageText?: string) => {
+    let content = messageText;
+    
+    if (!content) {
+      // Auto-generate prompt based on file types
+      const imageFiles = attachments.filter(f => f.mediaType.startsWith('image/'));
+      const documentFiles = attachments.filter(f => f.mediaType === 'application/pdf' || f.mediaType.includes('text') || f.mediaType.includes('document'));
+      const otherFiles = attachments.filter(f => !f.mediaType.startsWith('image/') && !documentFiles.includes(f));
+      
+      if (imageFiles.length > 0 && documentFiles.length === 0 && otherFiles.length === 0) {
+        content = imageFiles.length === 1 
+          ? "What do you see in this image? Please describe it in detail."
+          : "What do you see in these images? Please describe each one.";
+      } else if (documentFiles.length > 0 && imageFiles.length === 0 && otherFiles.length === 0) {
+        content = documentFiles.length === 1
+          ? "Please analyze this document and tell me what it contains. Summarize the key points."
+          : "Please analyze these documents and tell me what they contain. Summarize the key points from each.";
+      } else {
+        content = "Please analyze these files and tell me what they contain. Provide insights about each file.";
+      }
+    }
+    
+    await handleSendMessage(content, attachments);
+  };
+
   // Streaming API call
-  const handleSendMessage = async (content: string = inputValue) => {
-    if (!content.trim()) return;
+  const handleSendMessage = async (content: string = inputValue, attachments?: FileAttachment[]) => {
+    if (!content.trim() && !attachments?.length) return;
     setIsLoading(true);
 
     const newMessage: Message = {
@@ -100,6 +138,7 @@ export function MainContent({
       content: content.trim(),
       role: "user",
       timestamp: new Date(),
+      attachments: attachments,
     };
     const updatedMessages = [...messages, newMessage];
     setMessages(updatedMessages);
@@ -111,7 +150,8 @@ export function MainContent({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
           messages: getContextMessages(updatedMessages),
-          userId: userId
+          userId: userId,
+          attachments: attachments
         }),
       });
 
@@ -320,6 +360,7 @@ export function MainContent({
                   <div className="px-6 w-full max-w-4xl">
                     <div className="relative bg-[#2A2A2A] rounded-3xl border border-gray-700 flex items-center">
                       <Button
+                        onClick={() => setIsFileDialogOpen(true)}
                         className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg ml-3"
                         size="icon"
                       >
@@ -411,9 +452,37 @@ export function MainContent({
                                 </div>
                               </div>
                             ) : (
-                              <div className="whitespace-pre-wrap">
-                                {message.content}
-                              </div>
+                              <>
+                                {/* File attachments */}
+                                {message.attachments && message.attachments.length > 0 && (
+                                  <div className="mb-3 space-y-2">
+                                    {message.attachments.map((attachment, index) => (
+                                      <div key={index} className="flex items-center gap-2 p-2 bg-[#404040] rounded-lg">
+                                        {attachment.mediaType.startsWith('image/') ? (
+                                          <div className="w-16 h-16 rounded overflow-hidden bg-gray-600">
+                                            <img
+                                              src={attachment.url}
+                                              alt={attachment.name}
+                                              className="w-full h-full object-cover"
+                                            />
+                                          </div>
+                                        ) : (
+                                          <div className="w-10 h-10 rounded bg-gray-600 flex items-center justify-center">
+                                            <FileText className="h-6 w-6 text-gray-300" />
+                                          </div>
+                                        )}
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-sm font-medium text-white truncate">{attachment.name}</p>
+                                          <p className="text-xs text-gray-400">{(attachment.size / 1024).toFixed(1)} KB</p>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                <div className="whitespace-pre-wrap">
+                                  {message.content}
+                                </div>
+                              </>
                             )}
                           </div>
                           {/* Copy and Edit buttons for user messages - only visible on hover */}
@@ -547,6 +616,7 @@ export function MainContent({
                 <div className="w-full max-w-4xl px-4 py-4">
                   <div className="relative bg-[#2A2A2A] rounded-3xl border border-gray-700 flex items-center">
                     <Button
+                      onClick={() => setIsFileDialogOpen(true)}
                       className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg ml-3"
                       size="icon"
                     >
@@ -607,6 +677,12 @@ export function MainContent({
         <div className="fixed inset-0 bg-black bg-opacity-60 z-50" />
       )}
       
+      {/* File Upload Dialog */}
+      <FileUploadDialog
+        isOpen={isFileDialogOpen}
+        onClose={() => setIsFileDialogOpen(false)}
+        onFilesSelected={handleFilesSelected}
+      />
     </div>
   );
 }
