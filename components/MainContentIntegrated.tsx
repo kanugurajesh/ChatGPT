@@ -17,7 +17,6 @@ import {
   FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ImageGenerationView } from "./ImageGenerationView";
 import { ChatHeader } from "./ChatHeader";
 import { FileUploadDialog } from "./FileUploadDialog";
 import { useResponsive } from "@/hooks/use-responsive";
@@ -61,6 +60,54 @@ interface MainContentProps {
 
 const MAX_CONTEXT = 20;
 
+// Function to detect if a prompt is requesting image generation
+const isImageGenerationRequest = (text: string): boolean => {
+  const lowerText = text.toLowerCase();
+  
+  // Check for explicit image generation requests
+  const imagePatterns = [
+    /generate.*image/,
+    /create.*image/,
+    /draw.*image/,
+    /make.*image/,
+    /generate.*picture/,
+    /create.*picture/,
+    /draw.*picture/,
+    /make.*picture/,
+    /generate.*photo/,
+    /create.*photo/,
+    /draw.*photo/,
+    /make.*photo/,
+    /generate.*illustration/,
+    /create.*illustration/,
+    /draw.*illustration/,
+    /paint.*something/,
+    /sketch.*something/,
+    /render.*something/,
+    /visualize.*something/,
+    /show me.*image/,
+    /create.*art/,
+    /generate.*art/,
+    /make.*art/,
+    /draw.*art/,
+  ];
+  
+  // Also check for simple keywords that commonly indicate image requests
+  const simpleKeywords = [
+    'paint', 'sketch', 'render', 'visualize', 'design'
+  ];
+  
+  // Check patterns first
+  const hasImagePattern = imagePatterns.some(pattern => pattern.test(lowerText));
+  
+  // Check simple keywords (but only if they seem to be the main action)
+  const hasSimpleKeyword = simpleKeywords.some(keyword => 
+    lowerText.startsWith(keyword) || lowerText.includes(` ${keyword} `)
+  );
+  
+  return hasImagePattern || hasSimpleKeyword;
+};
+
 export function MainContent({
   isNavExpanded,
   showImageView,
@@ -82,6 +129,8 @@ export function MainContent({
   const [backgroundMemoryTasks, setBackgroundMemoryTasks] = useState<string[]>([]);
   const [isSavingToMongoDB, setIsSavingToMongoDB] = useState(false);
   const [isFileDialogOpen, setIsFileDialogOpen] = useState(false);
+  const [generatedImages, setGeneratedImages] = useState<{[messageId: string]: string}>({});
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const { isMobile } = useResponsive();
@@ -145,6 +194,8 @@ export function MainContent({
       setIsSavingToMongoDB(false);
       setIsStoringMemory(false);
       setBackgroundMemoryTasks([]);
+      setGeneratedImages({});
+      setIsGeneratingImage(false);
     }
   }, [activeChatId, activeChat, shouldLoadFromDB, clearActiveChat]);
 
@@ -210,6 +261,40 @@ export function MainContent({
     await handleSendMessage(content, attachments);
   };
 
+  // Image generation function
+  const handleImageGeneration = async (prompt: string): Promise<string | null> => {
+    try {
+      setIsGeneratingImage(true);
+      
+      const response = await fetch("/api/images/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          prompt: prompt.trim(),
+          chatId: activeChatId
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        console.error('Image generation failed:', result.error);
+        return null;
+      }
+
+      if (result.success && result.imageData) {
+        return result.imageData; // Base64 encoded image
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Error during image generation:', error);
+      return null;
+    } finally {
+      setIsGeneratingImage(false);
+    }
+  };
+
   // Streaming API call with MongoDB persistence
   const handleSendMessage = async (content: string = inputValue, attachments?: FileAttachment[]) => {
     if (!content.trim() && !attachments?.length) return;
@@ -260,32 +345,23 @@ export function MainContent({
         content: content.trim(),
       });
 
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          messages: contextMessages,
-          userId: user?.id || userId,
-          attachments: attachments
-        }),
-      });
-
-      if (!response.body) throw new Error("No response body");
-      const reader = response.body.getReader();
-      let streamingText = "";
-
+      // Check if this is an image generation request
+      const isImageRequest = isImageGenerationRequest(content.trim());
+      console.log('Image generation check:', { content: content.trim(), isImageRequest });
+      
       // Create new messages for the current conversation
       const userMessage: Message = {
         id: crypto.randomUUID(),
         content: content.trim(),
         role: 'user',
         timestamp: new Date(),
+        attachments: attachments,
       };
 
       const assistantId = crypto.randomUUID();
-      const assistantMessage: Message = {
+      let assistantMessage: Message = {
         id: assistantId,
-        content: '',
+        content: isImageRequest ? 'Generating image...' : '',
         role: 'assistant',
         timestamp: new Date(),
       };
@@ -293,8 +369,124 @@ export function MainContent({
       // Add user message to local state immediately
       const updatedMessages = [...messages, userMessage, assistantMessage];
       setLocalMessages(updatedMessages);
-      setIsStreaming(true);
       setShouldLoadFromDB(false); // We're now managing state locally
+
+      if (isImageRequest) {
+        // Handle image generation
+        setIsStreaming(true);
+        
+        // Generate image
+        const imageData = await handleImageGeneration(content.trim());
+        
+        if (imageData) {
+          // Store the generated image
+          setGeneratedImages(prev => ({
+            ...prev,
+            [assistantId]: imageData
+          }));
+          
+          // Update assistant message with success text and image
+          const imageMessage = `I've generated an image based on your request: "${content.trim()}"`;
+          assistantMessage = {
+            ...assistantMessage,
+            content: imageMessage,
+          };
+        } else {
+          // Update with error message if image generation failed
+          assistantMessage = {
+            ...assistantMessage,
+            content: 'Sorry, I was unable to generate an image. Please try again with a different prompt.',
+          };
+        }
+
+        // Update the assistant message in local state
+        setLocalMessages(prev => 
+          prev.map(msg => 
+            msg.id === assistantId 
+              ? assistantMessage
+              : msg
+          )
+        );
+
+        setIsStreaming(false);
+
+        // Save to MongoDB in background
+        if (imageData || !imageData) { // Save regardless of success/failure
+          setIsSavingToMongoDB(true);
+          
+          const backgroundSave = async () => {
+            try {
+              // For existing chats, save the user message first
+              if (activeChat) {
+                await addMessage('user', content.trim(), { attachments }, false);
+              }
+              
+              // Then save the assistant response
+              await addMessage('assistant', assistantMessage.content, { 
+                model: selectedModel,
+                tokens: assistantMessage.content.length,
+                imageGenerated: !!imageData
+              }, false);
+              
+              console.log('MongoDB background save completed successfully');
+              return true;
+            } catch (error) {
+              console.error('MongoDB background save failed:', error);
+              return false;
+            } finally {
+              setIsSavingToMongoDB(false);
+            }
+          };
+
+          backgroundSave().then((mongoSaveSuccess) => {
+            // Refresh chat history in sidebar
+            fetchChatHistory();
+          }).catch(error => {
+            console.error('Background save workflow failed:', error);
+          });
+        }
+
+        setIsLoading(false);
+        return;
+      }
+
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          messages: contextMessages,
+          userId: user?.id || userId,
+          attachments: attachments,
+          chatId: currentChatId
+        }),
+      });
+
+      if (!response.body) throw new Error("No response body");
+      
+      // Check if this response contains a generated image
+      const generatedImageHeader = response.headers.get('X-Generated-Image');
+      let generatedImageData = null;
+      if (generatedImageHeader) {
+        try {
+          generatedImageData = JSON.parse(generatedImageHeader);
+        } catch (e) {
+          console.error('Failed to parse generated image data:', e);
+        }
+      }
+      
+      const reader = response.body.getReader();
+      let streamingText = "";
+
+      // For regular chat (not image generation), update the assistant message to empty for streaming
+      assistantMessage.content = '';
+      setLocalMessages(prev => 
+        prev.map(msg => 
+          msg.id === assistantId 
+            ? assistantMessage
+            : msg
+        )
+      );
+      setIsStreaming(true);
 
       // Stream the response with real-time updates
       while (true) {
@@ -454,6 +646,8 @@ export function MainContent({
     setIsSavingToMongoDB(false);
     setIsStoringMemory(false);
     setBackgroundMemoryTasks([]);
+    setGeneratedImages({});
+    setIsGeneratingImage(false);
   };
 
   const handleTemporaryChatToggle = (enabled: boolean) => {
@@ -473,11 +667,24 @@ export function MainContent({
   return (
     <div>
       {showImageView ? (
-        <ImageGenerationView
-          currentImage={currentImage}
-          onClose={onCloseImageView}
-          onSetImage={onSetImage}
-        />
+        <div className="flex-1 flex flex-col items-center justify-center relative">
+          <Button
+            onClick={onCloseImageView}
+            className="absolute top-4 right-4 h-10 w-10 p-0 bg-black/50 hover:bg-black/70 text-white rounded-full z-10"
+            size="icon"
+          >
+            ✕
+          </Button>
+          {currentImage && (
+            <div className="w-full h-full flex items-center justify-center p-4">
+              <img
+                src={currentImage}
+                alt="Generated image preview"
+                className="max-w-full max-h-full object-contain rounded-lg"
+              />
+            </div>
+          )}
+        </div>
       ) : (
         <div className="flex flex-col h-full relative w-[800px]">
           {/* Chat Header */}
@@ -563,6 +770,7 @@ export function MainContent({
                       {isSignedIn ? (
                         <div className="flex items-center justify-center gap-2">
                           <span>✓ Signed in as {user?.firstName || 'User'}</span>
+                          {isGeneratingImage && <span>• Generating image...</span>}
                           {isSavingToMongoDB && <span>• Saving chat...</span>}
                           {isStoringMemory && <span>• Saving memory...</span>}
                         </div>
@@ -668,6 +876,48 @@ export function MainContent({
                       ) : (
                         // AI message - left aligned with buttons
                         <div className="flex flex-col">
+                          {/* Display generated image if available */}
+                          {generatedImages[message.id] && (
+                            <div className="mb-4">
+                              <div className="bg-gray-800 rounded-lg p-4 max-w-lg">
+                                <img
+                                  src={`data:image/png;base64,${generatedImages[message.id]}`}
+                                  alt="Generated image"
+                                  className="w-full h-auto rounded-lg"
+                                  onClick={() => {
+                                    onSetImage(`data:image/png;base64,${generatedImages[message.id]}`);
+                                  }}
+                                  style={{ cursor: 'pointer' }}
+                                />
+                                <div className="mt-2 flex justify-end">
+                                  <Button
+                                    onClick={async () => {
+                                      try {
+                                        const imageUrl = `data:image/png;base64,${generatedImages[message.id]}`;
+                                        const response = await fetch(imageUrl);
+                                        const blob = await response.blob();
+                                        const url = URL.createObjectURL(blob);
+                                        const a = document.createElement('a');
+                                        a.href = url;
+                                        a.download = `generated-image-${Date.now()}.png`;
+                                        document.body.appendChild(a);
+                                        a.click();
+                                        document.body.removeChild(a);
+                                        URL.revokeObjectURL(url);
+                                      } catch (error) {
+                                        console.error('Failed to download image:', error);
+                                      }
+                                    }}
+                                    className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
+                                    size="icon"
+                                  >
+                                    <Download className="w-4 h-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                          
                           <div className="text-white text-base leading-relaxed mb-3">
                             <div className="prose prose-invert max-w-none">
                               <ReactMarkdown
@@ -760,9 +1010,9 @@ export function MainContent({
                     </div>
                   ))}
 
-                  {isLoading && (
+                  {(isLoading || isGeneratingImage) && (
                     <div className="text-gray-400 text-sm animate-pulse">
-                      ChatGPT is thinking…
+                      {isGeneratingImage ? 'Generating image…' : 'ChatGPT is thinking…'}
                     </div>
                   )}
 
@@ -824,6 +1074,7 @@ export function MainContent({
                     {isSignedIn ? (
                       <div className="flex items-center justify-center gap-2">
                         <span>✓ Signed in as {user?.firstName || 'User'}</span>
+                        {isGeneratingImage && <span>• Generating image...</span>}
                         {isSavingToMongoDB && <span>• Saving chat...</span>}
                         {isStoringMemory && <span>• Saving memory...</span>}
                       </div>

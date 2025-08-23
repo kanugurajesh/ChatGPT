@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ChevronDown, Mic, Cloud, ArrowUp, X, Menu } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { ImageGenerationView } from "./ImageGenerationView"
 import { ChatInterface } from "./ChatInterface"
 import { useResponsive } from "@/hooks/use-responsive"
 import { useState } from "react"
@@ -35,11 +34,9 @@ export function MainContent({ isNavExpanded, showImageView, showChatView, curren
     )}>
       {showImageView ? (
         /* Show Image Generation View */
-        <ImageGenerationView 
-          currentImage={currentImage}
-          onClose={onCloseImageView}
-          onSetImage={onSetImage}
-        />
+        <div className="flex-1 flex flex-col items-center justify-center">
+          <p className="text-gray-400">Image generation has been removed</p>
+        </div>
       ) : showChatView ? (
         /* Show Chat Interface */
         <div className="flex-1 flex flex-col">

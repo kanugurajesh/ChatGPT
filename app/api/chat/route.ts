@@ -1,6 +1,6 @@
 import { google } from '@ai-sdk/google';
-import { streamText } from 'ai';
-import { NextRequest } from 'next/server';
+import { streamText, generateObject } from 'ai';
+import { NextRequest, NextResponse } from 'next/server';
 import { MemoryService, type MemoryMessage } from '@/lib/memory';
 import { auth } from '@clerk/nextjs/server';
 
@@ -14,10 +14,12 @@ interface FileAttachment {
   size: number;
 }
 
+
 export async function POST(req: NextRequest) {
   const body = await req.json();
   const history = (Array.isArray(body?.messages) ? body.messages : []) as { role: string, content: string }[];
   const attachments = body?.attachments as FileAttachment[] | undefined;
+  const chatId = body?.chatId as string | undefined;
   const trimmedHistory = history.slice(-MAX_CONTEXT);
   
   // Get authenticated user ID from Clerk, fallback to request body for unauthenticated users
@@ -27,8 +29,10 @@ export async function POST(req: NextRequest) {
 
   const model = google('models/gemini-2.0-flash-exp');
 
-  // Get the latest user message for memory search
+  // Get the latest user message for processing
   const latestUserMessage = trimmedHistory.filter(msg => msg.role === 'user').pop();
+
+  // Continue with regular chat processing for memory search
   
   let memoryContext = '';
   

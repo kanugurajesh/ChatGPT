@@ -67,6 +67,7 @@ export default function ChatGPTClone() {
     setShowImageView(false);
   };
 
+
   return (
     <div className="flex w-screen h-screen bg-[#212121] text-white relative overflow-hidden">
       <ErrorBoundary>
@@ -81,7 +82,7 @@ export default function ChatGPTClone() {
         />
       </ErrorBoundary>
 
-      {/* Chat area takes remaining space */}
+      {/* Main content area takes remaining space */}
       <div className="flex w-full justify-center">
         <MainContent
           isNavExpanded={navExpanded}

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Edit, Search, User, X, ChevronDown, Image, Brain, Library } from "lucide-react"
+import { Edit, Search, User, X, ChevronDown, Image, Brain } from "lucide-react"
 import { SidebarToggle } from "./SidebarToggle"
 import { SearchDialog } from "./SearchDialog"
 import { ManageMemory } from "./ManageMemory"
@@ -174,16 +174,6 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
               {isExpanded && <span className="ml-3 transition-opacity duration-300 ease-out">Generate</span>}
             </Button>
 
-            <Button 
-              variant="ghost"
-              className={cn(
-                "text-white hover:bg-[#2f2f2f] transition-all duration-300 ease-out",
-                isExpanded ? "w-full justify-start h-9 px-3" : "w-8 h-8 p-0 mx-auto flex justify-center"
-              )}
-            >
-              <Library className="h-4 w-4 shrink-0" />
-              {isExpanded && <span className="ml-3 transition-opacity duration-300 ease-out">Library</span>}
-            </Button>
 
             <Button 
               variant="ghost"
