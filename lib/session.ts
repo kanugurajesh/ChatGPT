@@ -1,10 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-
-interface UserSession {
-  id: string;
-  createdAt: Date;
-  lastActive: Date;
-}
+import type { UserSession, SessionStats } from '@/types/chat';
 
 class SessionManager {
   private sessions = new Map<string, UserSession>();
@@ -14,6 +9,9 @@ class SessionManager {
    * Get or create a user session
    */
   getOrCreateSession(): string {
+    // Periodically check and cleanup sessions to prevent memory leaks
+    this.checkAndCleanup();
+    
     // For now, we'll use a simple browser-based session
     // In production, this could be enhanced with proper authentication
     if (typeof window === 'undefined') {
@@ -81,13 +79,51 @@ class SessionManager {
   /**
    * Clean up expired sessions
    */
-  cleanupExpiredSessions(): void {
+  cleanupExpiredSessions(): number {
     const now = new Date().getTime();
+    let cleanedCount = 0;
     
     for (const [sessionId, session] of this.sessions.entries()) {
       if ((now - session.lastActive.getTime()) > this.SESSION_TIMEOUT) {
         this.sessions.delete(sessionId);
+        cleanedCount++;
       }
+    }
+    
+    return cleanedCount;
+  }
+
+  /**
+   * Get session statistics
+   */
+  getSessionStats(): SessionStats {
+    const now = new Date().getTime();
+    let activeCount = 0;
+    let expiredCount = 0;
+    
+    for (const session of this.sessions.values()) {
+      if ((now - session.lastActive.getTime()) > this.SESSION_TIMEOUT) {
+        expiredCount++;
+      } else {
+        activeCount++;
+      }
+    }
+    
+    return {
+      total: this.sessions.size,
+      active: activeCount,
+      expired: expiredCount,
+    };
+  }
+
+  /**
+   * Force cleanup if too many sessions are stored
+   */
+  private checkAndCleanup(): void {
+    // Cleanup if we have too many sessions (memory management)
+    if (this.sessions.size > 1000) {
+      const cleaned = this.cleanupExpiredSessions();
+      console.log(`Session cleanup: removed ${cleaned} expired sessions`);
     }
   }
 }
@@ -95,10 +131,6 @@ class SessionManager {
 // Export singleton instance
 export const sessionManager = new SessionManager();
 
-// Clean up expired sessions periodically
-if (typeof window === 'undefined') {
-  // Server-side cleanup every hour
-  setInterval(() => {
-    sessionManager.cleanupExpiredSessions();
-  }, 60 * 60 * 1000);
-}
+// Note: Automatic cleanup is removed to prevent memory leaks in server environments.
+// In production, consider implementing cleanup via a separate cron job or scheduled task.
+// For development, cleanup can be called manually when needed.

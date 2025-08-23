@@ -606,10 +606,184 @@ export function MainContent({
   };
 
   const handleRegenerateResponse = async (messageId: string) => {
-    // TODO: Implement regenerate response functionality
-    console.log('Regenerate response for message:', messageId);
-    // For now, just trigger a new message
-    await handleSendMessage("Please regenerate your last response.");
+    if (isLoading || isStreaming) return;
+
+    // Find the message to regenerate and the previous user message
+    const messageIndex = messages.findIndex(msg => msg.id === messageId);
+    if (messageIndex === -1 || messages[messageIndex].role !== 'assistant') {
+      console.error('Invalid message for regeneration:', messageId);
+      return;
+    }
+
+    // Find the corresponding user message (should be the one right before)
+    const userMessageIndex = messageIndex - 1;
+    if (userMessageIndex < 0 || messages[userMessageIndex].role !== 'user') {
+      console.error('Could not find corresponding user message for regeneration');
+      return;
+    }
+
+    const userMessage = messages[userMessageIndex];
+    const isImageRequest = isImageGenerationRequest(userMessage.content);
+
+    try {
+      setIsLoading(true);
+      setIsStreaming(true);
+
+      // Remove the old assistant response from local state
+      const messagesUpToUser = messages.slice(0, messageIndex);
+      
+      // Create a new assistant message
+      const newAssistantId = crypto.randomUUID();
+      const newAssistantMessage: Message = {
+        id: newAssistantId,
+        content: isImageRequest ? 'Regenerating image...' : '',
+        role: 'assistant',
+        timestamp: new Date(),
+      };
+
+      // Update local state with new assistant message
+      const updatedMessages = [...messagesUpToUser, newAssistantMessage];
+      setLocalMessages(updatedMessages);
+
+      if (isImageRequest) {
+        // Handle image regeneration
+        const imageData = await handleImageGeneration(userMessage.content);
+        
+        if (imageData) {
+          setGeneratedImages(prev => ({
+            ...prev,
+            [newAssistantId]: imageData
+          }));
+          
+          newAssistantMessage.content = `I've regenerated an image based on your request: "${userMessage.content}"`;
+        } else {
+          newAssistantMessage.content = 'Sorry, I was unable to regenerate the image. Please try again.';
+        }
+
+        // Update the message in local state
+        setLocalMessages(prev => 
+          prev.map(msg => 
+            msg.id === newAssistantId 
+              ? newAssistantMessage
+              : msg
+          )
+        );
+
+        // Save to MongoDB
+        setIsSavingToMongoDB(true);
+        try {
+          await addMessage('assistant', newAssistantMessage.content, { 
+            model: selectedModel,
+            tokens: newAssistantMessage.content.length,
+            imageGenerated: !!imageData,
+            regenerated: true
+          }, false);
+        } catch (error) {
+          console.error('Failed to save regenerated image response to MongoDB:', error);
+        } finally {
+          setIsSavingToMongoDB(false);
+        }
+      } else {
+        // Handle text regeneration
+        const historyForAPI = messagesUpToUser
+          .filter(msg => msg.role !== 'system')
+          .slice(-MAX_CONTEXT)
+          .map(msg => ({
+            role: msg.role,
+            content: msg.content,
+          }));
+
+        // Make API call for text response
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            messages: historyForAPI,
+            userId,
+            chatId: activeChatId,
+            attachments: userMessage.attachments,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) {
+          throw new Error('No response body reader available');
+        }
+
+        let fullContent = '';
+        const decoder = new TextDecoder();
+
+        // Stream the response
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          fullContent += chunk;
+
+          // Update the assistant message with streaming content
+          setLocalMessages(prev => 
+            prev.map(msg => 
+              msg.id === newAssistantId 
+                ? { ...msg, content: fullContent }
+                : msg
+            )
+          );
+        }
+
+        // Save the final response to MongoDB
+        setIsSavingToMongoDB(true);
+        try {
+          await addMessage('assistant', fullContent, { 
+            model: selectedModel,
+            tokens: fullContent.length,
+            regenerated: true
+          }, false);
+          
+          // Start background memory saving for authenticated users
+          if (isSignedIn && fullContent.trim()) {
+            const memoryMessages = [
+              { role: 'user' as const, content: userMessage.content },
+              { role: 'assistant' as const, content: fullContent }
+            ];
+            
+            backgroundMemorySaver.saveMemory(memoryMessages, userId);
+            setIsStoringMemory(true);
+            
+            const taskId = Date.now().toString();
+            setBackgroundMemoryTasks(prev => [...prev, taskId]);
+            
+            setTimeout(() => {
+              setBackgroundMemoryTasks(prev => prev.filter(id => id !== taskId));
+              if (backgroundMemoryTasks.length <= 1) {
+                setIsStoringMemory(false);
+              }
+            }, 3000);
+          }
+        } catch (error) {
+          console.error('Failed to save regenerated response to MongoDB:', error);
+        } finally {
+          setIsSavingToMongoDB(false);
+        }
+      }
+
+      // Refresh chat history
+      fetchChatHistory();
+      
+    } catch (error) {
+      console.error('Error regenerating response:', error);
+      // Restore original message on error
+      setLocalMessages(messages);
+    } finally {
+      setIsLoading(false);
+      setIsStreaming(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -970,41 +1144,43 @@ export function MainContent({
                             </div>
                           </div>
                           
-                          {/* Action buttons for AI responses */}
-                          <div className="flex items-center space-x-2 ml-0">
-                            <Button
-                              onClick={() => copyToClipboard(message.content)}
-                              className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
-                              size="icon"
-                            >
-                              <Copy className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
-                              size="icon"
-                            >
-                              <ThumbsUp className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
-                              size="icon"
-                            >
-                              <ThumbsDown className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              onClick={() => handleRegenerateResponse(message.id)}
-                              className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
-                              size="icon"
-                            >
-                              <RefreshCw className="w-4 h-4" />
-                            </Button>
-                            <Button
-                              className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
-                              size="icon"
-                            >
-                              <Share className="w-4 h-4" />
-                            </Button>
-                          </div>
+                          {/* Action buttons for AI responses - only show when response is complete */}
+                          {!isStreaming && !isLoading && message.content.trim() && (
+                            <div className="flex items-center space-x-2 ml-0">
+                              <Button
+                                onClick={() => copyToClipboard(message.content)}
+                                className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
+                                size="icon"
+                              >
+                                <Copy className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
+                                size="icon"
+                              >
+                                <ThumbsUp className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
+                                size="icon"
+                              >
+                                <ThumbsDown className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                onClick={() => handleRegenerateResponse(message.id)}
+                                className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
+                                size="icon"
+                              >
+                                <RefreshCw className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
+                                size="icon"
+                              >
+                                <Share className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

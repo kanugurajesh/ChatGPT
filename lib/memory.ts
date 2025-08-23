@@ -1,17 +1,22 @@
 import MemoryClient from 'mem0ai';
+import { env } from './env';
 
-// Initialize the Mem0 client with API key from environment
-const memoryClient = new MemoryClient({ 
-  apiKey: process.env.MEM0_API_KEY || ""
-});
+// Initialize the Mem0 client with validated API key
+let memoryClient: MemoryClient | null = null;
+
+// Only initialize if the service is properly configured
+if (env.isServiceConfigured('memory')) {
+  memoryClient = new MemoryClient({ 
+    apiKey: env.getConfig().MEM0_API_KEY!
+  });
+}
 
 export { memoryClient };
 
-// Types for memory operations
-export interface MemoryMessage {
-  role: "user" | "assistant";
-  content: string;
-}
+import type { MemoryMessage, MemorySearchRequest, MemoryAddRequest } from '@/types/api';
+
+// Types for memory operations (keeping original names for compatibility)
+export type { MemoryMessage };
 
 export interface MemorySearchOptions {
   user_id: string;
@@ -23,11 +28,34 @@ export interface MemoryAddOptions {
   metadata?: Record<string, any>;
 }
 
+export interface MemorySearchResult {
+  id: string;
+  memory: string;
+  score?: number;
+  metadata?: Record<string, any>;
+}
+
 // Memory service functions
 export class MemoryService {
-  static async addMemory(messages: MemoryMessage[], options: MemoryAddOptions) {
+  private static checkMemoryClient(): void {
+    if (!memoryClient) {
+      throw new Error('Memory service is not configured. Please set MEM0_API_KEY environment variable.');
+    }
+  }
+
+  static isConfigured(): boolean {
+    return env.isServiceConfigured('memory');
+  }
+
+  static async addMemory(messages: MemoryMessage[], options: MemoryAddOptions): Promise<any | null> {
+    if (!this.isConfigured()) {
+      console.warn('Memory service not configured, skipping memory add');
+      return null;
+    }
+    
     try {
-      const result = await memoryClient.add(messages, options);
+      this.checkMemoryClient();
+      const result = await memoryClient!.add(messages, options);
       return result;
     } catch (error) {
       console.error('Error adding memory:', error);
@@ -35,9 +63,15 @@ export class MemoryService {
     }
   }
 
-  static async searchMemory(query: string, options: MemorySearchOptions) {
+  static async searchMemory(query: string, options: MemorySearchOptions): Promise<MemorySearchResult[]> {
+    if (!this.isConfigured()) {
+      console.warn('Memory service not configured, returning empty results');
+      return [];
+    }
+    
     try {
-      const results = await memoryClient.search(query, {
+      this.checkMemoryClient();
+      const results = await memoryClient!.search(query, {
         user_id: options.user_id,
         limit: options.limit || 5
       });
@@ -49,9 +83,15 @@ export class MemoryService {
     }
   }
 
-  static async getAllMemories(userId: string, limit = 10) {
+  static async getAllMemories(userId: string, limit = 10): Promise<MemorySearchResult[]> {
+    if (!this.isConfigured()) {
+      console.warn('Memory service not configured, returning empty results');
+      return [];
+    }
+    
     try {
-      const results = await memoryClient.getAll({
+      this.checkMemoryClient();
+      const results = await memoryClient!.getAll({
         user_id: userId,
         limit: limit
       });
@@ -63,9 +103,15 @@ export class MemoryService {
     }
   }
 
-  static async deleteMemory(memoryId: string) {
+  static async deleteMemory(memoryId: string): Promise<any | null> {
+    if (!this.isConfigured()) {
+      console.warn('Memory service not configured, skipping memory delete');
+      return null;
+    }
+    
     try {
-      const result = await memoryClient.delete(memoryId);
+      this.checkMemoryClient();
+      const result = await memoryClient!.delete(memoryId);
       return result;
     } catch (error) {
       console.error('Error deleting memory:', error);
@@ -73,9 +119,15 @@ export class MemoryService {
     }
   }
 
-  static async deleteAllMemories(userId: string) {
+  static async deleteAllMemories(userId: string): Promise<any | null> {
+    if (!this.isConfigured()) {
+      console.warn('Memory service not configured, skipping memory delete all');
+      return null;
+    }
+    
     try {
-      const result = await memoryClient.deleteAll({
+      this.checkMemoryClient();
+      const result = await memoryClient!.deleteAll({
         user_id: userId
       });
       return result;

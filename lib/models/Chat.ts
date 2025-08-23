@@ -98,8 +98,23 @@ const ChatSchema = new Schema<IChat>({
 // Indexes for better performance
 ChatSchema.index({ userId: 1, createdAt: -1 }); // For user's chat history
 ChatSchema.index({ userId: 1, updatedAt: -1 }); // For most recently active chats
-ChatSchema.index({ userId: 1, isArchived: 1 }); // For filtering archived chats
+ChatSchema.index({ userId: 1, isArchived: 1, updatedAt: -1 }); // For filtering archived chats with sorting
+ChatSchema.index({ userId: 1, isArchived: 1, createdAt: -1 }); // For filtering archived chats by creation date
+ChatSchema.index({ id: 1, userId: 1 }); // For unique chat lookups with user validation
 ChatSchema.index({ 'messages.content': 'text', title: 'text' }); // For text search
+
+// Compound indexes for common query patterns
+ChatSchema.index({ 
+  userId: 1, 
+  isArchived: 1, 
+  'metadata.lastActivity': -1 
+}); // For recent activity filtering
+
+// Sparse index for tags (only documents with tags)
+ChatSchema.index({ userId: 1, tags: 1 }, { sparse: true }); // For tag-based filtering
+
+// TTL index for automatic cleanup of very old chats (optional - uncomment if needed)
+// ChatSchema.index({ createdAt: 1 }, { expireAfterSeconds: 31536000 }); // 1 year TTL
 
 // Pre-save middleware to update the updatedAt field and metadata
 ChatSchema.pre('save', function(next) {

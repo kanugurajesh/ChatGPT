@@ -3,6 +3,10 @@ import { streamText, generateObject } from 'ai';
 import { NextRequest, NextResponse } from 'next/server';
 import { MemoryService, type MemoryMessage } from '@/lib/memory';
 import { auth } from '@clerk/nextjs/server';
+import { handleApiError, createError, withRetry } from '@/lib/errors';
+import { env } from '@/lib/env';
+import { createRequestLogger } from '@/lib/logger';
+import { v4 as uuidv4 } from 'uuid';
 
 const MAX_CONTEXT = 20;
 
@@ -16,48 +20,96 @@ interface FileAttachment {
 
 
 export async function POST(req: NextRequest) {
-  const body = await req.json();
-  const history = (Array.isArray(body?.messages) ? body.messages : []) as { role: string, content: string }[];
-  const attachments = body?.attachments as FileAttachment[] | undefined;
-  const chatId = body?.chatId as string | undefined;
-  const trimmedHistory = history.slice(-MAX_CONTEXT);
+  const requestId = uuidv4();
+  const log = createRequestLogger(requestId);
   
-  // Get authenticated user ID from Clerk, fallback to request body for unauthenticated users
-  const { userId: clerkUserId } = await auth();
-  const userId = clerkUserId || body?.userId || 'default_user';
-  const isAuthenticated = !!clerkUserId;
-
-  const model = google('models/gemini-2.0-flash-exp');
-
-  // Get the latest user message for processing
-  const latestUserMessage = trimmedHistory.filter(msg => msg.role === 'user').pop();
-
-  // Continue with regular chat processing for memory search
-  
-  let memoryContext = '';
-  
-  // Retrieve relevant memories only for authenticated users
-  if (isAuthenticated && latestUserMessage?.content && userId) {
+  try {
+    log.info('Chat API request received');
+    
+    // Validate request body
+    let body;
     try {
-      console.log('Searching memories for user:', userId, 'query:', latestUserMessage.content);
+      body = await req.json();
+    } catch (error) {
+      log.warn('Invalid JSON in request body', { error: (error as Error).message });
+      throw createError.invalidRequest('Invalid JSON in request body');
+    }
+
+    const history = (Array.isArray(body?.messages) ? body.messages : []) as { role: string, content: string }[];
+    const attachments = body?.attachments as FileAttachment[] | undefined;
+    const chatId = body?.chatId as string | undefined;
+    
+    // Validate required fields
+    if (!history || history.length === 0) {
+      log.warn('Missing required messages field');
+      throw createError.missingFields(['messages']);
+    }
+
+    const trimmedHistory = history.slice(-MAX_CONTEXT);
+    
+    // Get authenticated user ID from Clerk, fallback to request body for unauthenticated users
+    let userId: string;
+    let isAuthenticated = false;
+    
+    try {
+      const { userId: clerkUserId } = await auth();
+      userId = clerkUserId || body?.userId || 'default_user';
+      isAuthenticated = !!clerkUserId;
+      log.debug('User authentication status', { 
+        userId: userId.substring(0, 8) + '...', 
+        isAuthenticated,
+        chatId 
+      });
+    } catch (error) {
+      log.warn('Authentication check failed', { error: (error as Error).message });
+      userId = body?.userId || 'default_user';
+    }
+
+    // Update logger context with user ID
+    const userLog = createRequestLogger(requestId, userId);
+
+    // Validate AI service configuration
+    if (!env.isServiceConfigured('ai')) {
+      userLog.error('AI service not properly configured');
+      throw createError.internal('AI service not properly configured');
+    }
+
+    const model = google('models/gemini-2.0-flash-exp');
+
+    // Get the latest user message for processing
+    const latestUserMessage = trimmedHistory.filter(msg => msg.role === 'user').pop();
+
+    // Continue with regular chat processing for memory search
+    let memoryContext = '';
+    
+    // Retrieve relevant memories only for authenticated users
+    if (isAuthenticated && latestUserMessage?.content && userId) {
+      try {
+        userLog.info('Searching memories for user', { 
+          query: latestUserMessage.content.substring(0, 50) + '...' 
+        });
+        
+        // Try both specific search and getting all memories for better context with retry
+        const [searchResults, allMemories] = await withRetry(async () => {
+          return Promise.all([
+            MemoryService.searchMemory(latestUserMessage.content, {
+              user_id: userId,
+              limit: 5
+            }).catch(err => {
+              userLog.warn('Memory search failed', { error: err.message });
+              return [];
+            }),
+            MemoryService.getAllMemories(userId, 10).catch(err => {
+              userLog.warn('Get all memories failed', { error: err.message });
+              return [];
+            })
+          ]);
+        }, 2, 500); // Retry twice with 500ms base delay
       
-      // Try both specific search and getting all memories for better context
-      const [searchResults, allMemories] = await Promise.all([
-        MemoryService.searchMemory(latestUserMessage.content, {
-          user_id: userId,
-          limit: 5
-        }).catch(err => {
-          console.error('Memory search failed:', err);
-          return [];
-        }),
-        MemoryService.getAllMemories(userId, 10).catch(err => {
-          console.error('Get all memories failed:', err);
-          return [];
-        })
-      ]);
-      
-      console.log('Memory search results:', searchResults);
-      console.log('All memories count:', allMemories?.length || 0);
+      userLog.debug('Memory search completed', { 
+        searchResultsCount: searchResults?.length || 0,
+        allMemoriesCount: allMemories?.length || 0 
+      });
       
       // Use search results first, then fall back to recent memories
       let relevantMemories = '';
@@ -81,16 +133,19 @@ export async function POST(req: NextRequest) {
 ${relevantMemories}
 
 Please use this context to provide more personalized and contextual responses when relevant.`;
-        console.log('Memory context added to prompt');
+        userLog.info('Memory context added to prompt');
       } else {
-        console.log('No relevant memories found to add to context');
+        userLog.debug('No relevant memories found to add to context');
       }
     } catch (error) {
-      console.error('Memory retrieval failed:', error);
+      userLog.error('Memory retrieval failed', error as Error);
       // Continue without memory context if search fails
     }
   } else {
-    console.log('Memory search skipped - authenticated:', isAuthenticated, 'hasMessage:', !!latestUserMessage?.content, 'userId:', userId);
+    userLog.debug('Memory search skipped', { 
+      isAuthenticated, 
+      hasMessage: !!latestUserMessage?.content 
+    });
   }
 
   // Enhance the conversation with memory context and system instruction
@@ -141,17 +196,38 @@ Please use this context to provide more personalized and contextual responses wh
     }
   }
 
-  const { textStream } = await streamText({
-    model,
-    messages: multimodalMessages,
-  });
+    // Generate AI response with error handling
+    let textStream;
+    try {
+      const result = await withRetry(async () => {
+        return streamText({
+          model,
+          messages: multimodalMessages,
+        });
+      }, 2, 1000);
+      
+      textStream = result.textStream;
+    } catch (error) {
+      userLog.error('AI generation failed', error as Error);
+      throw createError.internal('Failed to generate AI response', error as Error);
+    }
 
-  // Note: Memory storage is now handled client-side after conversation completes
+    // Note: Memory storage is now handled client-side after conversation completes
 
-  // Return streaming response
-  return new Response(textStream, {
-    headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-    },
-  });
+    // Return streaming response
+    return new Response(textStream, {
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+      },
+    });
+
+  } catch (error) {
+    log.error('Chat API error', error as Error, { requestId, userId });
+    const { error: errorResponse, status } = handleApiError(error);
+    
+    return NextResponse.json(
+      { success: false, ...errorResponse },
+      { status }
+    );
+  }
 }

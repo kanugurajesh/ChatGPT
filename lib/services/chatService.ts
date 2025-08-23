@@ -1,6 +1,7 @@
 import connectDB from '@/lib/mongodb';
 import Chat, { IChat, IMessage } from '@/lib/models/Chat';
 import { v4 as uuidv4 } from 'uuid';
+import { createError, withRetry, AppError } from '@/lib/errors';
 
 export interface CreateChatData {
   userId: string;
@@ -31,7 +32,24 @@ export class ChatService {
    * Create a new chat conversation
    */
   static async createChat(data: CreateChatData): Promise<IChat> {
-    await connectDB();
+    // Validate input
+    if (!data.userId || !data.title) {
+      throw createError.missingFields(['userId', 'title']);
+    }
+
+    if (data.title.trim().length === 0) {
+      throw createError.invalidRequest('Title cannot be empty');
+    }
+
+    if (data.title.length > 200) {
+      throw createError.invalidRequest('Title too long (max 200 characters)');
+    }
+
+    try {
+      await connectDB();
+    } catch (error) {
+      throw createError.databaseConnection(error as Error);
+    }
 
     console.log('Creating new chat:', {
       userId: data.userId,
@@ -44,6 +62,10 @@ export class ChatService {
 
     // Add initial message if provided
     if (data.initialMessage) {
+      if (!data.initialMessage.content || data.initialMessage.content.trim().length === 0) {
+        throw createError.invalidRequest('Initial message content cannot be empty');
+      }
+
       const messageId = uuidv4();
       messages.push({
         id: messageId,
@@ -57,13 +79,21 @@ export class ChatService {
     const chat = new Chat({
       id: chatId,
       userId: data.userId,
-      title: data.title,
+      title: data.title.trim(),
       messages,
     });
 
-    await chat.save();
-    console.log('Chat created successfully:', { chatId, userId: data.userId, messageCount: messages.length });
-    return chat;
+    try {
+      const savedChat = await withRetry(async () => {
+        return await chat.save();
+      }, 2, 500);
+
+      console.log('Chat created successfully:', { chatId, userId: data.userId, messageCount: messages.length });
+      return savedChat;
+    } catch (error) {
+      console.error('Failed to save chat to database:', error);
+      throw createError.internal('Failed to create chat', error as Error);
+    }
   }
 
   /**
@@ -86,7 +116,20 @@ export class ChatService {
     total: number;
     hasMore: boolean;
   }> {
-    await connectDB();
+    // Validate input
+    if (!options.userId) {
+      throw createError.missingFields(['userId']);
+    }
+
+    if (options.limit && (options.limit < 1 || options.limit > 200)) {
+      throw createError.invalidRequest('Limit must be between 1 and 200');
+    }
+
+    try {
+      await connectDB();
+    } catch (error) {
+      throw createError.databaseConnection(error as Error);
+    }
 
     const { 
       userId, 
@@ -96,34 +139,50 @@ export class ChatService {
       searchQuery 
     } = options;
 
-    // Build query
-    const query: any = { userId };
-    
-    if (!includeArchived) {
-      query.isArchived = { $ne: true };
+    try {
+      // Optimized query building
+      const baseQuery: any = { userId };
+      
+      if (!includeArchived) {
+        baseQuery.isArchived = { $ne: true }; // Uses compound index: userId + isArchived
+      }
+
+      let query = baseQuery;
+      let sortCriteria: any = { updatedAt: -1 };
+
+      // Add text search if query provided
+      if (searchQuery && searchQuery.trim()) {
+        query = {
+          ...baseQuery,
+          $text: { $search: searchQuery.trim() }
+        };
+        // When using text search, sort by score first, then by updatedAt
+        sortCriteria = { 
+          score: { $meta: 'textScore' }, 
+          updatedAt: -1 
+        };
+      }
+
+      // Use Promise.all for parallel execution
+      const [total, chats] = await Promise.all([
+        Chat.countDocuments(query),
+        Chat.find(query)
+          .sort(sortCriteria)
+          .skip(offset)
+          .limit(limit)
+          .select('id userId title createdAt updatedAt metadata tags isArchived') // Optimized projection
+          .lean() // Use lean() for better performance when we don't need Mongoose documents
+          .exec()
+      ]);
+
+      return {
+        chats: chats as IChat[],
+        total,
+        hasMore: offset + chats.length < total,
+      };
+    } catch (error) {
+      throw createError.internal('Failed to fetch chat history', error as Error);
     }
-
-    // Add text search if query provided
-    if (searchQuery && searchQuery.trim()) {
-      query.$text = { $search: searchQuery.trim() };
-    }
-
-    // Get total count
-    const total = await Chat.countDocuments(query);
-
-    // Get chats with pagination
-    const chats = await Chat.find(query)
-      .sort({ updatedAt: -1 }) // Most recently updated first
-      .skip(offset)
-      .limit(limit)
-      .select('id userId title createdAt updatedAt metadata tags') // Exclude messages for list view
-      .exec();
-
-    return {
-      chats,
-      total,
-      hasMore: offset + chats.length < total,
-    };
   }
 
   /**
@@ -224,21 +283,46 @@ export class ChatService {
    * Search chats by content
    */
   static async searchChats(userId: string, query: string, limit = 10): Promise<IChat[]> {
-    await connectDB();
+    // Validate input
+    if (!userId) {
+      throw createError.missingFields(['userId']);
+    }
 
-    if (!query.trim()) {
+    if (!query || !query.trim()) {
       return [];
     }
 
-    return await Chat.find({
-      userId,
-      isArchived: { $ne: true },
-      $text: { $search: query.trim() }
-    })
-    .sort({ score: { $meta: 'textScore' } })
-    .limit(limit)
-    .select('id userId title createdAt updatedAt metadata')
-    .exec();
+    if (limit < 1 || limit > 50) {
+      throw createError.invalidRequest('Limit must be between 1 and 50');
+    }
+
+    try {
+      await connectDB();
+    } catch (error) {
+      throw createError.databaseConnection(error as Error);
+    }
+
+    try {
+      const searchResults = await withRetry(async () => {
+        return Chat.find({
+          userId,
+          isArchived: { $ne: true },
+          $text: { $search: query.trim() }
+        })
+        .sort({ 
+          score: { $meta: 'textScore' },
+          updatedAt: -1 // Secondary sort for consistent ordering
+        })
+        .limit(limit)
+        .select('id userId title createdAt updatedAt metadata')
+        .lean() // Use lean for better performance
+        .exec();
+      }, 2, 500);
+
+      return searchResults as IChat[];
+    } catch (error) {
+      throw createError.internal('Chat search failed', error as Error);
+    }
   }
 
   /**
