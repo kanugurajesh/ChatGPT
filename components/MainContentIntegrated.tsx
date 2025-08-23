@@ -29,6 +29,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/github-dark.css';
+import { backgroundMemorySaver } from '@/lib/services/backgroundSaver';
 
 interface FileAttachment {
   type: 'file';
@@ -41,7 +42,7 @@ interface FileAttachment {
 interface Message {
   id: string;
   content: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
   timestamp: Date;
   isEditing?: boolean;
   attachments?: FileAttachment[];
@@ -78,6 +79,8 @@ export function MainContent({
   const [editContent, setEditContent] = useState("");
   const [userId, setUserId] = useState<string>('default_user');
   const [isStoringMemory, setIsStoringMemory] = useState(false);
+  const [backgroundMemoryTasks, setBackgroundMemoryTasks] = useState<string[]>([]);
+  const [isSavingToMongoDB, setIsSavingToMongoDB] = useState(false);
   const [isFileDialogOpen, setIsFileDialogOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -88,13 +91,14 @@ export function MainContent({
   const { activeChat, isLoading: chatLoading, addMessage, createNewChat, updateTitle, generateTitle, loadChat } = useActiveChat(activeChatId);
   const { fetchChatHistory } = useChatHistory();
 
-  // Local state for real-time streaming (hybrid approach)
-  const [streamingMessages, setStreamingMessages] = useState<Message[]>([]);
+  // Persistent message state - prioritizes local state over DB
+  const [localMessages, setLocalMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [shouldLoadFromDB, setShouldLoadFromDB] = useState(true);
 
-  // Combine MongoDB messages with streaming messages for display
-  const messages: Message[] = isStreaming 
-    ? streamingMessages
+  // Use local messages as the source of truth, only fall back to DB when needed
+  const messages: Message[] = localMessages.length > 0 || !shouldLoadFromDB
+    ? localMessages 
     : (activeChat?.messages.map(msg => ({
         id: msg.id,
         content: msg.content,
@@ -106,11 +110,35 @@ export function MainContent({
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Reset streaming state when active chat changes
+  // Load from DB when active chat changes or when there are no local messages
   useEffect(() => {
-    setIsStreaming(false);
-    setStreamingMessages([]);
-  }, [activeChatId]);
+    if (activeChatId) {
+      // Always load the chat when activeChatId changes
+      if (!activeChat || activeChat.id !== activeChatId) {
+        // Reset local state when switching chats
+        setLocalMessages([]);
+        setShouldLoadFromDB(true);
+        loadChat(activeChatId);
+      }
+      
+      // Load messages from activeChat into local state
+      if (activeChat?.id === activeChatId && shouldLoadFromDB) {
+        const dbMessages: Message[] = activeChat.messages.map(msg => ({
+          id: msg.id,
+          content: msg.content,
+          role: msg.role,
+          timestamp: msg.timestamp,
+        }));
+        setLocalMessages(dbMessages);
+        setShouldLoadFromDB(false);
+      }
+    } else {
+      // Reset for new chat
+      setLocalMessages([]);
+      setIsStreaming(false);
+      setShouldLoadFromDB(true);
+    }
+  }, [activeChatId, activeChat, shouldLoadFromDB, loadChat]);
 
   useEffect(() => {
     // Initialize user ID - use Clerk user ID if authenticated, otherwise session ID
@@ -124,6 +152,29 @@ export function MainContent({
     }
   }, [user, isSignedIn, isLoaded]);
 
+  // Setup background memory saver callbacks
+  useEffect(() => {
+    backgroundMemorySaver.setCallbacks({
+      onStart: (taskId) => {
+        setBackgroundMemoryTasks(prev => [...prev, taskId]);
+        setIsStoringMemory(true);
+      },
+      onSuccess: (taskId) => {
+        console.log(`Background memory save completed: ${taskId}`);
+      },
+      onError: (taskId, error) => {
+        console.error(`Background memory save failed: ${taskId}`, error);
+      },
+      onComplete: (taskId, success) => {
+        setBackgroundMemoryTasks(prev => prev.filter(id => id !== taskId));
+        // Only set to false if no more tasks are running
+        setIsStoringMemory(prev => {
+          const remainingTasks = backgroundMemoryTasks.filter(id => id !== taskId);
+          return remainingTasks.length > 0;
+        });
+      }
+    });
+  }, [backgroundMemoryTasks]);
 
   // Handle file uploads
   const handleFilesSelected = async (attachments: FileAttachment[], messageText?: string) => {
@@ -168,10 +219,10 @@ export function MainContent({
       // Create new chat if this is the first message
       if (!activeChat) {
         const title = generateTitle(content.trim());
-        currentChatId = await createNewChat(title, {
+        currentChatId = (await createNewChat(title, {
           role: 'user',
           content: content.trim()
-        });
+        })) || undefined;
         
         if (!currentChatId) {
           throw new Error('Failed to create new chat');
@@ -185,8 +236,8 @@ export function MainContent({
         
         // Continue with AI response since the initial message was already added
       } else {
-        // Add user message to existing chat
-        await addMessage('user', content.trim(), { attachments }, true);
+        // For existing chats, we'll add the user message to local state (already done below)
+        // MongoDB save will happen in the background after the AI response
       }
 
       // Get current messages for context
@@ -215,14 +266,7 @@ export function MainContent({
       const reader = response.body.getReader();
       let streamingText = "";
 
-      // Set up streaming display with current messages + new user message
-      const currentMessages = activeChat?.messages.map(msg => ({
-        id: msg.id,
-        content: msg.content,
-        role: msg.role,
-        timestamp: msg.timestamp,
-      })) || [];
-
+      // Create new messages for the current conversation
       const userMessage: Message = {
         id: crypto.randomUUID(),
         content: content.trim(),
@@ -238,13 +282,11 @@ export function MainContent({
         timestamp: new Date(),
       };
 
-      // Start streaming mode with current messages + new messages
+      // Add user message to local state immediately
+      const updatedMessages = [...messages, userMessage, assistantMessage];
+      setLocalMessages(updatedMessages);
       setIsStreaming(true);
-      
-      // For new chats, start with just the user message
-      // For existing chats, include all previous messages
-      const streamingBase = activeChat ? [...currentMessages, userMessage] : [userMessage];
-      setStreamingMessages([...streamingBase, assistantMessage]);
+      setShouldLoadFromDB(false); // We're now managing state locally
 
       // Stream the response with real-time updates
       while (true) {
@@ -253,8 +295,8 @@ export function MainContent({
         const chunk = new TextDecoder().decode(value);
         streamingText += chunk;
 
-        // Update the streaming message content in real-time
-        setStreamingMessages(prev => 
+        // Update the assistant message content in real-time
+        setLocalMessages(prev => 
           prev.map(msg => 
             msg.id === assistantId 
               ? { ...msg, content: streamingText }
@@ -263,62 +305,72 @@ export function MainContent({
         );
       }
 
-      // End streaming mode
+      // End streaming mode immediately - local state is now the source of truth
       setIsStreaming(false);
 
-      // Add the complete assistant message to MongoDB
+      // Save to MongoDB in background without affecting UI state
       if (streamingText.trim()) {
-        await addMessage('assistant', streamingText.trim(), { 
-          model: selectedModel,
-          tokens: streamingText.length 
-        }, false);
-      }
-
-      // Store memory after conversation is complete (only for authenticated users)
-      if (isSignedIn && user?.id && streamingText.trim()) {
-        setIsStoringMemory(true);
-        const conversationToStore = [
-          { role: "user", content: content.trim() },
-          { role: "assistant", content: streamingText.trim() }
-        ];
+        setIsSavingToMongoDB(true);
         
-        console.log('Storing conversation memory:', conversationToStore);
-        
-        try {
-          const memoryResponse = await fetch('/api/memory/add', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({
-              messages: conversationToStore,
-              metadata: { timestamp: new Date().toISOString() }
-            })
-          });
-          
-          if (memoryResponse.ok) {
-            console.log('Memory stored successfully');
-          } else {
-            const errorData = await memoryResponse.json().catch(() => ({}));
-            console.error('Failed to store memory:', memoryResponse.status, errorData);
+        // Background save - don't await this, let it run async
+        const backgroundSave = async () => {
+          try {
+            // For existing chats, save the user message first
+            if (activeChat) {
+              await addMessage('user', content.trim(), { attachments }, false);
+            }
+            
+            // Then save the assistant response
+            await addMessage('assistant', streamingText.trim(), { 
+              model: selectedModel,
+              tokens: streamingText.length 
+            }, false);
+            
+            console.log('MongoDB background save completed successfully');
+            return true;
+          } catch (error) {
+            console.error('MongoDB background save failed:', error);
+            return false;
+          } finally {
+            setIsSavingToMongoDB(false);
           }
-        } catch (error) {
-          console.error('Error storing memory:', error);
-        } finally {
-          setIsStoringMemory(false);
-        }
-      }
+        };
 
-      // Refresh chat history in sidebar after successful conversation
-      fetchChatHistory();
+        // Start background save and handle memory storage
+        backgroundSave().then((mongoSaveSuccess) => {
+          // Only save to memory if MongoDB save was successful
+          if (isSignedIn && user?.id && mongoSaveSuccess) {
+            const conversationToStore = [
+              { role: "user" as const, content: content.trim() },
+              { role: "assistant" as const, content: streamingText.trim() }
+            ];
+            
+            console.log('Queuing conversation for background memory storage');
+            
+            // Add to background memory queue
+            backgroundMemorySaver.addMemoryTask(conversationToStore, { 
+              timestamp: new Date().toISOString(),
+              model: selectedModel,
+              tokens: streamingText.length
+            });
+          }
+
+          // Refresh chat history in sidebar
+          fetchChatHistory();
+        }).catch(error => {
+          console.error('Background save workflow failed:', error);
+        });
+      }
       
     } catch (err) {
       console.error('Error in chat flow:', err);
       
-      // End streaming mode and show error
+      // End streaming mode and reset states
       setIsStreaming(false);
+      setIsSavingToMongoDB(false);
       
       // Add error message to chat if we have an active chat
-      if (currentChatId) {
+      if (activeChatId) {
         await addMessage('assistant', 'Sorry, I encountered an error. Please try again.', { error: true }, false);
       }
     } finally {
@@ -354,11 +406,10 @@ export function MainContent({
   };
 
   const handleRegenerateResponse = async (messageId: string) => {
-    const messageIndex = messages.findIndex((m) => m.id === messageId);
-    if (messageIndex === -1) return;
-    const updatedMessages = messages.slice(0, messageIndex);
-    setMessages(updatedMessages);
-    await handleSendMessage();
+    // TODO: Implement regenerate response functionality
+    console.log('Regenerate response for message:', messageId);
+    // For now, just trigger a new message
+    await handleSendMessage("Please regenerate your last response.");
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -390,7 +441,11 @@ export function MainContent({
     setEditingMessageId(null);
     setEditContent("");
     setIsStreaming(false);
-    setStreamingMessages([]);
+    setLocalMessages([]);
+    setShouldLoadFromDB(true);
+    setIsSavingToMongoDB(false);
+    setIsStoringMemory(false);
+    setBackgroundMemoryTasks([]);
     
     // Trigger new chat creation on next message
     onNewChat();
@@ -414,10 +469,9 @@ export function MainContent({
     <div>
       {showImageView ? (
         <ImageGenerationView
-          image={currentImage}
+          currentImage={currentImage}
           onClose={onCloseImageView}
           onSetImage={onSetImage}
-          onNewChat={onNewChat}
         />
       ) : (
         <div className="flex flex-col h-full relative w-[800px]">
@@ -504,6 +558,7 @@ export function MainContent({
                       {isSignedIn ? (
                         <div className="flex items-center justify-center gap-2">
                           <span>✓ Signed in as {user?.firstName || 'User'}</span>
+                          {isSavingToMongoDB && <span>• Saving chat...</span>}
                           {isStoringMemory && <span>• Saving memory...</span>}
                         </div>
                       ) : (
@@ -614,7 +669,8 @@ export function MainContent({
                                 remarkPlugins={[remarkGfm]}
                                 rehypePlugins={[rehypeHighlight]}
                                 components={{
-                                  code: ({ node, inline, className, children, ...props }) => {
+                                  code: ({ node, className, children, ...props }: any) => {
+                                    const inline = !className;
                                     const match = /language-(\w+)/.exec(className || '');
                                     return !inline && match ? (
                                       <pre className="bg-gray-800 rounded-lg p-4 overflow-x-auto">
@@ -763,6 +819,7 @@ export function MainContent({
                     {isSignedIn ? (
                       <div className="flex items-center justify-center gap-2">
                         <span>✓ Signed in as {user?.firstName || 'User'}</span>
+                        {isSavingToMongoDB && <span>• Saving chat...</span>}
                         {isStoringMemory && <span>• Saving memory...</span>}
                       </div>
                     ) : (

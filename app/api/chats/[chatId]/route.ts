@@ -15,7 +15,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     }
 
-    const { chatId } = params;
+    const { chatId } = await params;
     
     if (!chatId) {
       return NextResponse.json({ error: 'Chat ID is required' }, { status: 400 });
@@ -43,7 +43,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     }
 
-    const { chatId } = params;
+    const { chatId } = await params;
     const body = await request.json();
     const { title, isArchived } = body;
 
@@ -86,7 +86,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     }
 
-    const { chatId } = params;
+    const { chatId } = await params;
     
     if (!chatId) {
       return NextResponse.json({ error: 'Chat ID is required' }, { status: 400 });
