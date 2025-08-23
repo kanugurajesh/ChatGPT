@@ -88,7 +88,7 @@ export function MainContent({
   const { user, isSignedIn, isLoaded } = useUser();
 
   // MongoDB-powered chat management
-  const { activeChat, isLoading: chatLoading, addMessage, createNewChat, updateTitle, generateTitle, loadChat } = useActiveChat(activeChatId);
+  const { activeChat, isLoading: chatLoading, addMessage, createNewChat, updateTitle, generateTitle, loadChat, clearActiveChat } = useActiveChat(activeChatId);
   const { fetchChatHistory } = useChatHistory();
 
   // Persistent message state - prioritizes local state over DB
@@ -133,12 +133,20 @@ export function MainContent({
         setShouldLoadFromDB(false);
       }
     } else {
-      // Reset for new chat
-      setLocalMessages([]);
+      // Reset for new chat - clear everything
+      clearActiveChat();
+      setInputValue("");
+      setIsLoading(false);
+      setEditingMessageId(null);
+      setEditContent("");
       setIsStreaming(false);
+      setLocalMessages([]);
       setShouldLoadFromDB(true);
+      setIsSavingToMongoDB(false);
+      setIsStoringMemory(false);
+      setBackgroundMemoryTasks([]);
     }
-  }, [activeChatId, activeChat, shouldLoadFromDB, loadChat]);
+  }, [activeChatId, activeChat, shouldLoadFromDB, clearActiveChat]);
 
   useEffect(() => {
     // Initialize user ID - use Clerk user ID if authenticated, otherwise session ID
@@ -446,9 +454,6 @@ export function MainContent({
     setIsSavingToMongoDB(false);
     setIsStoringMemory(false);
     setBackgroundMemoryTasks([]);
-    
-    // Trigger new chat creation on next message
-    onNewChat();
   };
 
   const handleTemporaryChatToggle = (enabled: boolean) => {

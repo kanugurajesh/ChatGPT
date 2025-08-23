@@ -50,9 +50,6 @@ export default function ChatGPTClone() {
 
   const handleNewChat = () => {
     setActiveChatId(undefined);
-    if (typeof window !== "undefined" && (window as any).resetMainContentChat) {
-      (window as any).resetMainContentChat();
-    }
   };
 
   const handleChatCreated = (chatId: string) => {
