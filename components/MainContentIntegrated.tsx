@@ -621,9 +621,12 @@ export function MainContent({
               });
 
               // For existing chats, save the user message first
+              // Note: For new chats, user message was already saved during createNewChat
               if (activeChat) {
-                console.log('💾 Saving user message...');
+                console.log('💾 Saving user message for existing chat...');
                 await addMessage('user', content.trim(), { attachments }, false);
+              } else {
+                console.log('💾 Skipping user message save - already saved during new chat creation');
               }
               
               // Then save the assistant response with image metadata
@@ -643,7 +646,31 @@ export function MainContent({
 
               console.log('💾 Saving assistant message with metadata:', messageMetadata);
               
-              await addMessage('assistant', assistantMessage.content, messageMetadata, false);
+              // Save assistant message - use direct API call if activeChat is null (new chats)
+              if (activeChat) {
+                await addMessage('assistant', assistantMessage.content, messageMetadata, false);
+              } else {
+                // For new chats, use direct API call since activeChat is still null
+                console.log('💾 Using direct API call for new chat assistant message...');
+                const response = await fetch(`/api/chats/${currentChatId}/messages`, {
+                  method: 'POST',
+                  credentials: 'include',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    role: 'assistant',
+                    content: assistantMessage.content,
+                    metadata: messageMetadata,
+                  }),
+                });
+                
+                if (!response.ok) {
+                  throw new Error(`Failed to save assistant message: ${response.status}`);
+                }
+                
+                console.log('✅ Assistant message saved via direct API call');
+              }
               
               console.log('✅ MongoDB background save completed successfully');
               return true;
