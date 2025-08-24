@@ -375,14 +375,26 @@ export function ImageGallery({ onClose }: ImageGalleryProps) {
                     <>
                       {/* Grid view */}
                       <div
-                        className="w-full h-full cursor-pointer"
+                        className="w-full h-full cursor-pointer relative"
                         onClick={() => setSelectedImage(image)}
                       >
-                        {image.mimeType?.startsWith('image/') || image.type === 'generated' ? (
+                        {(image.mimeType?.startsWith('image/') || image.type === 'generated') && image.cloudinaryUrl ? (
                           <img
-                            src={getThumbnailUrl(image.cloudinaryPublicId, 300)}
+                            src={getThumbnailUrl(image.cloudinaryUrl, 300)}
                             alt={image.type === 'generated' ? image.prompt : image.fileName}
-                            className="w-full h-full object-cover"
+                            className="w-full h-full object-cover relative z-0"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              if (target.src !== image.cloudinaryUrl) {
+                                // Fallback to original URL
+                                target.src = image.cloudinaryUrl;
+                              } else {
+                                // Even original failed, show error state
+                                target.style.display = 'none';
+                                target.parentElement?.classList.add('flex', 'items-center', 'justify-center');
+                                target.parentElement?.insertAdjacentHTML('beforeend', '<div class="flex flex-col items-center justify-center text-gray-400"><svg class="h-12 w-12 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg><span class="text-xs">Failed to load</span></div>');
+                              }
+                            }}
                           />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center">
@@ -392,8 +404,8 @@ export function ImageGallery({ onClose }: ImageGalleryProps) {
                       </div>
                       
                       {/* Overlay */}
-                      <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-50 transition-all duration-200 flex items-end">
-                        <div className="w-full p-3 text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="absolute inset-0 bg-transparent group-hover:bg-black group-hover:bg-opacity-50 transition-all duration-200 flex items-end z-10">
+                        <div className="w-full p-3 text-white opacity-0 group-hover:opacity-100 transition-opacity relative z-10">
                           <div className="flex items-center justify-between">
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium truncate">
@@ -427,11 +439,21 @@ export function ImageGallery({ onClose }: ImageGalleryProps) {
                       {/* List view */}
                       <div className="flex items-center gap-4 flex-1">
                         <div className="w-16 h-16 rounded overflow-hidden bg-[#404040] flex-shrink-0">
-                          {image.mimeType?.startsWith('image/') || image.type === 'generated' ? (
+                          {(image.mimeType?.startsWith('image/') || image.type === 'generated') && image.cloudinaryUrl ? (
                             <img
-                              src={getThumbnailUrl(image.cloudinaryPublicId, 64)}
+                              src={getThumbnailUrl(image.cloudinaryUrl, 64)}
                               alt={image.type === 'generated' ? image.prompt : image.fileName}
                               className="w-full h-full object-cover"
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                if (target.src !== image.cloudinaryUrl) {
+                                  target.src = image.cloudinaryUrl;
+                                } else {
+                                  target.style.display = 'none';
+                                  target.parentElement?.classList.add('flex', 'items-center', 'justify-center');
+                                  target.parentElement?.insertAdjacentHTML('beforeend', '<svg class="h-8 w-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>');
+                                }
+                              }}
                             />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center">
@@ -514,11 +536,17 @@ export function ImageGallery({ onClose }: ImageGalleryProps) {
             </DialogHeader>
             <div className="space-y-4">
               <div className="flex justify-center">
-                {selectedImage.mimeType?.startsWith('image/') || selectedImage.type === 'generated' ? (
+                {(selectedImage.mimeType?.startsWith('image/') || selectedImage.type === 'generated') && selectedImage.cloudinaryUrl ? (
                   <img
-                    src={getPreviewUrl(selectedImage.cloudinaryPublicId, 800)}
+                    src={getPreviewUrl(selectedImage.cloudinaryUrl, 800)}
                     alt={selectedImage.type === 'generated' ? selectedImage.prompt : selectedImage.fileName}
                     className="max-w-full max-h-96 object-contain rounded"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      if (target.src !== selectedImage.cloudinaryUrl) {
+                        target.src = selectedImage.cloudinaryUrl;
+                      }
+                    }}
                   />
                 ) : (
                   <div className="w-64 h-64 flex items-center justify-center bg-[#404040] rounded">

@@ -2,9 +2,10 @@
 
 /**
  * Get optimized image URL with transformations
+ * This version works by modifying existing Cloudinary URLs instead of relying on environment variables
  */
 export function getOptimizedImageUrl(
-  publicId: string,
+  publicIdOrUrl: string,
   options: {
     width?: number;
     height?: number;
@@ -35,14 +36,34 @@ export function getOptimizedImageUrl(
     ? transformations.join('/') + '/'
     : '';
   
-  return `https://res.cloudinary.com/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/image/upload/${transformationString}${publicId}`;
+  // If it's already a full Cloudinary URL, modify it by inserting transformations
+  if (publicIdOrUrl.includes('res.cloudinary.com')) {
+    // Extract parts from existing URL: https://res.cloudinary.com/CLOUD_NAME/image/upload/v123456/folder/image.jpg
+    const match = publicIdOrUrl.match(/https:\/\/res\.cloudinary\.com\/([^\/]+)\/image\/upload\/(.+)/);
+    if (match) {
+      const [, cloudName, pathAfterUpload] = match;
+      const url = `https://res.cloudinary.com/${cloudName}/image/upload/${transformationString}${pathAfterUpload}`;
+      return url;
+    }
+  }
+  
+  // Fallback: try to use environment variable for public_id only
+  const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+  if (cloudName) {
+    const url = `https://res.cloudinary.com/${cloudName}/image/upload/${transformationString}${publicIdOrUrl}`;
+    return url;
+  }
+  
+  // If all else fails, return the original input (might be a direct URL)
+  return publicIdOrUrl;
 }
 
 /**
  * Generate thumbnail URL
+ * Can accept either a publicId or full cloudinaryUrl
  */
-export function getThumbnailUrl(publicId: string, size: number = 200): string {
-  return getOptimizedImageUrl(publicId, {
+export function getThumbnailUrl(publicIdOrUrl: string, size: number = 200): string {
+  return getOptimizedImageUrl(publicIdOrUrl, {
     width: size,
     height: size,
     crop: 'fill',
@@ -52,10 +73,11 @@ export function getThumbnailUrl(publicId: string, size: number = 200): string {
 }
 
 /**
- * Generate preview URL
+ * Generate preview URL  
+ * Can accept either a publicId or full cloudinaryUrl
  */
-export function getPreviewUrl(publicId: string, width: number = 800): string {
-  return getOptimizedImageUrl(publicId, {
+export function getPreviewUrl(publicIdOrUrl: string, width: number = 800): string {
+  return getOptimizedImageUrl(publicIdOrUrl, {
     width,
     quality: 'auto',
     format: 'auto',

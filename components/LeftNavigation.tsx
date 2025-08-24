@@ -309,25 +309,30 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
                       </div>
                     ) : (
                       <div className="relative">
+                        <Button
+                          variant="ghost"
+                          onClick={() => onChatSelect?.(chat.id)}
+                          className={cn(
+                            "w-full justify-start text-white hover:bg-[#2f2f2f] h-auto py-2 px-3 text-sm text-left transition-colors group-hover:pr-10",
+                            activeChatId === chat.id && "bg-[#2f2f2f]"
+                          )}
+                        >
+                          <div className="truncate flex-1 pr-2">
+                            <div className="truncate font-medium">{chat.title}</div>
+                            <div className="text-xs text-gray-400 mt-0.5">
+                              {chat.messageCount || 0} messages • {new Date(chat.timestamp).toLocaleDateString()}
+                            </div>
+                          </div>
+                        </Button>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
                               variant="ghost"
-                              onClick={() => onChatSelect?.(chat.id)}
-                              className={cn(
-                                "w-full justify-between text-white hover:bg-[#2f2f2f] h-auto py-2 px-3 text-sm text-left transition-colors group-hover:pr-10",
-                                activeChatId === chat.id && "bg-[#2f2f2f]"
-                              )}
+                              size="icon"
+                              className="opacity-0 group-hover:opacity-100 transition-opacity absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 hover:bg-[#404040]"
+                              onClick={(e) => e.stopPropagation()}
                             >
-                              <div className="truncate flex-1 pr-2">
-                                <div className="truncate font-medium">{chat.title}</div>
-                                <div className="text-xs text-gray-400 mt-0.5">
-                                  {chat.messageCount || 0} messages • {new Date(chat.timestamp).toLocaleDateString()}
-                                </div>
-                              </div>
-                              <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute right-2 top-1/2 -translate-y-1/2">
-                                <MoreHorizontal className="h-4 w-4 text-gray-400" />
-                              </div>
+                              <MoreHorizontal className="h-4 w-4 text-gray-400" />
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent 
