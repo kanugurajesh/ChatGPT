@@ -15,6 +15,8 @@ import {
   MoreHorizontal,
   Download,
   FileText,
+  Menu,
+  Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ChatHeader } from "./ChatHeader";
@@ -57,6 +59,7 @@ interface MainContentProps {
   onNewChat: () => void;
   activeChatId?: string;
   onChatCreated?: (chatId: string) => void;
+  onToggle?: () => void;
 }
 
 const MAX_CONTEXT = 20;
@@ -118,6 +121,7 @@ export function MainContent({
   onNewChat,
   activeChatId,
   onChatCreated,
+  onToggle,
 }: MainContentProps) {
   const [isTemporaryChat, setIsTemporaryChat] = useState(false);
   const [selectedModel, setSelectedModel] = useState("chatgpt");
@@ -135,7 +139,7 @@ export function MainContent({
   const [generatingImageMessageIds, setGeneratingImageMessageIds] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const { isMobile } = useResponsive();
+  const { isMobile, useOverlayNav } = useResponsive();
   const { user, isSignedIn, isLoaded } = useUser();
 
   // MongoDB-powered chat management
@@ -1138,24 +1142,75 @@ export function MainContent({
           )}
         </div>
       ) : (
-        <div className="flex flex-col h-full relative w-[800px]">
-          {/* Chat Header */}
-          <div className="flex items-center justify-between">
-            <ChatHeader
-              isTemporaryChat={isTemporaryChat}
-              onTemporaryChatToggle={handleTemporaryChatToggle}
-              selectedModel={selectedModel}
-              onModelChange={handleModelChange}
-            />
-          </div>
+        <div className={cn(
+          "flex flex-col h-full relative",
+          useOverlayNav ? "w-full" : "w-[800px]"
+        )}>
+          {/* Mobile Header with Full Width Layout */}
+          {isMobile && (
+            <div className="flex items-center justify-between py-3 px-4 bg-[#2f2f2f] w-full -mx-4">
+              {/* Hamburger Menu - Far Left */}
+              {!isNavExpanded && onToggle && (
+                <Button
+                  onClick={onToggle}
+                  variant="ghost"
+                  size="icon"
+                  className="text-white hover:bg-[#404040] w-10 h-10 p-0 flex-shrink-0"
+                  aria-label="Open navigation menu"
+                >
+                  <Menu className="h-5 w-5" />
+                </Button>
+              )}
+              
+              {/* Upgrade Button - Center Left */}
+              <div className="flex-1 flex justify-center">
+                <Button className="bg-[#6366f1] hover:bg-[#5855eb] text-white px-4 py-2 rounded-full text-sm font-medium">
+                  <div className="w-4 h-4 mr-2 flex items-center justify-center">
+                    <svg viewBox="0 0 24 24" className="w-3 h-3 text-white" fill="currentColor">
+                      <path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.078 6.078 0 0 0 6.529 2.9 5.973 5.973 0 0 0 4.258 1.786c1.638 0 3.185-.65 4.299-1.786a5.987 5.987 0 0 0 4.007-2.9 6.042 6.042 0 0 0-.75-7.094l.003-.003z"/>
+                    </svg>
+                  </div>
+                  Upgrade to Go
+                </Button>
+              </div>
+              
+              {/* Settings Icon - Far Right */}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-white hover:bg-[#404040] w-10 h-10 p-0 flex-shrink-0"
+                aria-label="Settings"
+              >
+                <Settings className="h-5 w-5" />
+              </Button>
+            </div>
+          )}
+          
+          {/* Chat Header - Medium and Desktop screens */}
+          {!isMobile && (
+            <div className="flex items-center justify-between">
+              <ChatHeader
+                isTemporaryChat={isTemporaryChat}
+                onTemporaryChatToggle={handleTemporaryChatToggle}
+                selectedModel={selectedModel}
+                onModelChange={handleModelChange}
+              />
+            </div>
+          )}
           
           {/* Chat area */}
           <div className="flex-1 overflow-y-auto">
             {messages.length === 0 ? (
               // Empty state
-              <div className="flex flex-col items-center justify-center h-full">
+              <div className={cn(
+                "flex flex-col items-center h-full",
+                isMobile ? "justify-start pt-8" : "justify-center"
+              )}>
                 <div className="w-full flex flex-col items-center">
-                  <div className="text-center mb-8">
+                  <div className={cn(
+                    "text-center",
+                    isMobile ? "mb-6" : "mb-8"
+                  )}>
                     {isTemporaryChat ? (
                       <>
                         <div className="text-2xl font-semibold text-white mb-4">
@@ -1174,7 +1229,13 @@ export function MainContent({
                     )}
                   </div>
                   {/* Input area (first prompt) */}
-                  <div className="px-6 w-full max-w-4xl">
+                  <div className={cn(
+                    "w-full flex justify-center",
+                    isMobile ? "px-1" : useOverlayNav ? "px-4 max-w-full" : "px-6 max-w-4xl"
+                  )}>
+                    <div className={cn(
+                      isMobile ? "w-[95%]" : "w-full max-w-4xl"
+                    )}>
                     <div className="relative bg-[#2A2A2A] rounded-3xl border border-gray-700 flex items-center">
                       <Button
                         onClick={() => setIsFileDialogOpen(true)}
@@ -1216,6 +1277,7 @@ export function MainContent({
                         </Button>
                       </div>
                     </div>
+                    </div>
                     
                     {/* Status indicator */}
                     <div className="text-center mt-3 text-xs text-gray-500">
@@ -1238,7 +1300,10 @@ export function MainContent({
             ) : (
               // Messages
               <div className="flex justify-center w-full mt-2">
-                <div className="w-full max-w-4xl px-4 py-6">
+                <div className={cn(
+                  "w-full",
+                  isMobile ? "py-4 px-2" : useOverlayNav ? "py-6 px-4 max-w-full" : "py-6 px-4 max-w-4xl"
+                )}>
                   {messages.map((message) => (
                     <div key={message.id} className="mb-8">
                       {message.role === "user" ? (
@@ -1513,7 +1578,13 @@ export function MainContent({
           {messages.length > 0 && (
             <div className="bg-[#212121] sticky bottom-0 z-10">
               <div className="flex justify-center w-full">
-                <div className="w-full max-w-4xl px-4 py-4">
+                <div className={cn(
+                  "w-full py-4 flex justify-center",
+                  isMobile ? "px-1" : useOverlayNav ? "px-4 max-w-full" : "px-4 max-w-4xl"
+                )}>
+                  <div className={cn(
+                    isMobile ? "w-[95%]" : "w-full max-w-4xl"
+                  )}>
                   <div className="relative bg-[#2A2A2A] rounded-3xl border border-gray-700 flex items-center">
                     <Button
                       onClick={() => setIsFileDialogOpen(true)}
@@ -1554,6 +1625,7 @@ export function MainContent({
                         <ArrowUp className="w-4 h-4" />
                       </Button>
                     </div>
+                  </div>
                   </div>
                   
                   {/* Status indicator */}

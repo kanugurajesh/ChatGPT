@@ -10,7 +10,7 @@ import { sessionManager } from "@/lib/session";
 import { useUser } from "@clerk/nextjs";
 
 export default function ChatGPTClone() {
-  const { isMobile, isSmallScreen } = useResponsive();
+  const { isMobile, isSmallScreen, useOverlayNav } = useResponsive();
   const { user, isLoaded } = useUser();
   const [navExpanded, setNavExpanded] = useState(false);
   const [showImageView, setShowImageView] = useState(false);
@@ -35,12 +35,12 @@ export default function ChatGPTClone() {
     }
   }, [user, isLoaded]);
 
-  // Auto-close nav on mobile when view changes
+  // Auto-close nav on mobile/compact screens when view changes
   useEffect(() => {
-    if (isMobile && (showImageView || showGalleryView)) {
+    if (useOverlayNav && (showImageView || showGalleryView)) {
       setNavExpanded(false);
     }
-  }, [showImageView, showGalleryView, isMobile]);
+  }, [showImageView, showGalleryView, useOverlayNav]);
 
   const closeNavigation = () => {
     setNavExpanded(false);
@@ -64,8 +64,8 @@ export default function ChatGPTClone() {
 
   const handleChatSelected = (chatId: string) => {
     setActiveChatId(chatId);
-    if (isMobile) {
-      setNavExpanded(false); // Close sidebar on mobile
+    if (useOverlayNav) {
+      setNavExpanded(false); // Close sidebar on mobile/compact screens
     }
   };
 
@@ -108,6 +108,7 @@ export default function ChatGPTClone() {
             onNewChat={handleNewChat}
             activeChatId={activeChatId}
             onChatCreated={handleChatCreated}
+            onToggle={toggleNavigation}
           />
         )}
       </div>

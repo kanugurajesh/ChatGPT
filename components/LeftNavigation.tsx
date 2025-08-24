@@ -35,7 +35,7 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
   const [isMemoryOpen, setIsMemoryOpen] = useState(false)
   const [editingChatId, setEditingChatId] = useState<string | null>(null)
   const [editTitle, setEditTitle] = useState('')
-  const { isMobile } = useResponsive()
+  const { isMobile, useOverlayNav } = useResponsive()
   const { user, isSignedIn, isLoaded } = useUser()
   const { chatHistory, isLoading: chatHistoryLoading, error: chatHistoryError, deleteChat, updateChatTitle } = useChatHistory()
 
@@ -115,8 +115,8 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
 
   return (
     <>
-      {/* Backdrop when expanded - only on mobile */}
-      {isExpanded && isMobile && (
+      {/* Backdrop when expanded - for overlay navigation */}
+      {isExpanded && useOverlayNav && (
         <div 
           className="fixed inset-0 bg-black bg-opacity-50 z-20"
           onClick={onClose}
@@ -128,10 +128,14 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
         isMobile 
           ? isExpanded 
             ? "fixed left-0 top-0 w-[335px] h-screen z-30" 
-            : "w-12 h-full"
-          : isExpanded 
-            ? "w-[275px] h-full z-30" 
-            : "w-12 h-full"
+            : "hidden"
+          : useOverlayNav
+            ? isExpanded 
+              ? "fixed left-0 top-0 w-[335px] h-screen z-30" 
+              : "w-12 h-full"
+            : isExpanded 
+              ? "w-[275px] h-full z-30" 
+              : "w-12 h-full"
       )}>
         {/* Top Section */}
         <div className={cn(
@@ -152,7 +156,7 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
                     </svg>
                   </div>
                   <span className="text-white font-medium text-lg">ChatGPT</span>
-                  <ChevronDown className="h-4 w-4 text-gray-400" />
+                  {!isMobile && <ChevronDown className="h-4 w-4 text-gray-400" />}
                 </div>
                 <Button 
                   variant="ghost" 
