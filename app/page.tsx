@@ -53,6 +53,9 @@ export default function ChatGPTClone() {
 
   const handleNewChat = () => {
     setActiveChatId(undefined);
+    // Close gallery view and return to home (chat interface)
+    setShowGalleryView(false);
+    setShowImageView(false);
   };
 
   const handleChatCreated = (chatId: string) => {
