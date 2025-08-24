@@ -16,6 +16,7 @@ import { ManageMemory } from "./ManageMemory"
 import { useResponsive } from "@/hooks/use-responsive"
 import { useChatHistory } from "@/hooks/use-chat-history"
 import { cn } from "@/lib/utils"
+// import Image from "next/image"
 import { useUser, SignInButton, UserButton } from "@clerk/nextjs"
 
 interface LeftNavigationProps {
@@ -444,7 +445,12 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
       </div>
 
       {/* Search Dialog */}
-      <SearchDialog isOpen={isSearchOpen} onClose={handleSearchClose} />
+      <SearchDialog 
+        isOpen={isSearchOpen} 
+        onClose={handleSearchClose}
+        onChatSelect={onChatSelect}
+        onNewChat={onNewChat}
+      />
       
       {/* Memory Management Dialog */}
       {isLoaded && isSignedIn && user?.id && (
