@@ -29,9 +29,6 @@ const nextConfig = {
     dangerouslyAllowSVG: true,
     contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
   },
-  devIndicators: {
-    buildActivity: false,
-  },
   // Add security headers
   async headers() {
     return [

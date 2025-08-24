@@ -76,7 +76,15 @@ export class MemoryService {
         limit: options.limit || 5
       });
 
-      return results;
+      // Filter out results without memory content and transform to our interface
+      return results
+        .filter(result => result.memory !== undefined)
+        .map(result => ({
+          id: result.id,
+          memory: result.memory!,
+          score: result.score,
+          metadata: result.metadata
+        }));
     } catch (error) {
       console.error('Error searching memory:', error);
       throw error;
@@ -96,7 +104,15 @@ export class MemoryService {
         limit: limit
       });
 
-      return results;
+      // Filter out results without memory content and transform to our interface
+      return results
+        .filter(result => result.memory !== undefined)
+        .map(result => ({
+          id: result.id,
+          memory: result.memory!,
+          score: result.score,
+          metadata: result.metadata
+        }));
     } catch (error) {
       console.error('Error getting all memories:', error);
       throw error;

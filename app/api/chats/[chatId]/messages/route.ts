@@ -3,7 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { ChatService } from '@/lib/services/chatService';
 
 interface RouteParams {
-  params: { chatId: string };
+  params: Promise<{ chatId: string }>;
 }
 
 // POST /api/chats/[chatId]/messages - Add a message to a chat

@@ -27,6 +27,23 @@ export interface ChatListOptions {
   searchQuery?: string;
 }
 
+// Chat summary type for list operations (without messages for performance)
+export interface ChatSummary {
+  id: string;
+  userId: string;
+  title: string;
+  messages: IMessage[]; // Empty array for compatibility with IChat interface
+  createdAt: Date;
+  updatedAt: Date;
+  metadata?: {
+    totalMessages?: number;
+    lastActivity?: Date;
+    [key: string]: any;
+  };
+  tags?: string[];
+  isArchived: boolean;
+}
+
 export class ChatService {
   /**
    * Create a new chat conversation
@@ -112,7 +129,7 @@ export class ChatService {
    * Get chat history for a user
    */
   static async getChatHistory(options: ChatListOptions): Promise<{
-    chats: IChat[];
+    chats: ChatSummary[];
     total: number;
     hasMore: boolean;
   }> {
@@ -175,8 +192,21 @@ export class ChatService {
           .exec()
       ]);
 
+      // Transform lean documents to ChatSummary objects
+      const transformedChats: ChatSummary[] = chats.map((chat: any) => ({
+        id: chat.id || chat._id.toString(),
+        userId: chat.userId,
+        title: chat.title,
+        messages: [], // Not included in projection for performance
+        createdAt: chat.createdAt,
+        updatedAt: chat.updatedAt,
+        isArchived: chat.isArchived,
+        tags: chat.tags,
+        metadata: chat.metadata
+      }));
+
       return {
-        chats: chats as IChat[],
+        chats: transformedChats,
         total,
         hasMore: offset + chats.length < total,
       };
@@ -283,7 +313,7 @@ export class ChatService {
   /**
    * Search chats by content
    */
-  static async searchChats(userId: string, query: string, limit = 10): Promise<IChat[]> {
+  static async searchChats(userId: string, query: string, limit = 10): Promise<ChatSummary[]> {
     // Validate input
     if (!userId) {
       throw createError.missingFields(['userId']);
@@ -320,7 +350,20 @@ export class ChatService {
         .exec();
       }, 2, 500);
 
-      return searchResults as IChat[];
+      // Transform lean documents to ChatSummary objects
+      const transformedResults: ChatSummary[] = searchResults.map((chat: any) => ({
+        id: chat.id || chat._id.toString(),
+        userId: chat.userId,
+        title: chat.title,
+        messages: [], // Not included in projection for performance
+        createdAt: chat.createdAt,
+        updatedAt: chat.updatedAt,
+        isArchived: chat.isArchived || false,
+        tags: chat.tags,
+        metadata: chat.metadata
+      }));
+
+      return transformedResults;
     } catch (error) {
       throw createError.internal('Chat search failed', error as Error);
     }

@@ -40,7 +40,12 @@ export class DatabaseOptimizer {
   static async getDatabaseStats(): Promise<Partial<DatabaseStats>> {
     try {
       await connectDB();
-      const db = Chat.db;
+      const mongoose = await import('mongoose');
+      const db = mongoose.connection.db;
+
+      if (!db) {
+        throw new Error('Database connection not established');
+      }
 
       // Get collection stats
       const collections = await db.listCollections().toArray();

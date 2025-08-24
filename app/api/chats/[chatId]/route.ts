@@ -3,7 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { ChatService } from '@/lib/services/chatService';
 
 interface RouteParams {
-  params: { chatId: string };
+  params: Promise<{ chatId: string }>;
 }
 
 // GET /api/chats/[chatId] - Get a specific chat by ID

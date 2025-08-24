@@ -18,10 +18,18 @@ interface FileAttachment {
   size: number;
 }
 
+type MessageContent = string | Array<{ type: 'text'; text: string } | { type: 'image'; image: string }>;
+
+interface ChatMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: MessageContent;
+}
+
 
 export async function POST(req: NextRequest) {
   const requestId = uuidv4();
   const log = createRequestLogger(requestId);
+  let userId: string = 'default_user';
   
   try {
     log.info('Chat API request received');
@@ -35,7 +43,7 @@ export async function POST(req: NextRequest) {
       throw createError.invalidRequest('Invalid JSON in request body');
     }
 
-    const history = (Array.isArray(body?.messages) ? body.messages : []) as { role: string, content: string }[];
+    const history = (Array.isArray(body?.messages) ? body.messages : []) as ChatMessage[];
     const attachments = body?.attachments as FileAttachment[] | undefined;
     const chatId = body?.chatId as string | undefined;
     
@@ -48,7 +56,6 @@ export async function POST(req: NextRequest) {
     const trimmedHistory = history.slice(-MAX_CONTEXT);
     
     // Get authenticated user ID from Clerk, fallback to request body for unauthenticated users
-    let userId: string;
     let isAuthenticated = false;
     
     try {
@@ -85,14 +92,18 @@ export async function POST(req: NextRequest) {
     // Retrieve relevant memories only for authenticated users
     if (isAuthenticated && latestUserMessage?.content && userId) {
       try {
+        const contentText = typeof latestUserMessage.content === 'string' 
+          ? latestUserMessage.content 
+          : latestUserMessage.content.find(part => part.type === 'text')?.text || '';
+        
         userLog.info('Searching memories for user', { 
-          query: latestUserMessage.content.substring(0, 50) + '...' 
+          query: contentText.substring(0, 50) + '...' 
         });
         
         // Try both specific search and getting all memories for better context with retry
         const [searchResults, allMemories] = await withRetry(async () => {
           return Promise.all([
-            MemoryService.searchMemory(latestUserMessage.content, {
+            MemoryService.searchMemory(contentText, {
               user_id: userId,
               limit: 5
             }).catch(err => {
@@ -149,7 +160,7 @@ Please use this context to provide more personalized and contextual responses wh
   }
 
   // Enhance the conversation with memory context and system instruction
-  let messages = [...trimmedHistory];
+  let messages: ChatMessage[] = [...trimmedHistory];
   
   if (memoryContext && messages.length > 0) {
     // Add system message at the beginning if we have memory context
@@ -163,7 +174,7 @@ Please use this context to provide more personalized and contextual responses wh
     
     // Add memory context to the latest user message
     const lastMessage = messages[messages.length - 1];
-    if (lastMessage.role === 'user') {
+    if (lastMessage.role === 'user' && typeof lastMessage.content === 'string') {
       messages[messages.length - 1] = {
         ...lastMessage,
         content: lastMessage.content + memoryContext
@@ -172,10 +183,10 @@ Please use this context to provide more personalized and contextual responses wh
   }
 
   // Convert to multimodal format if attachments exist
-  let multimodalMessages = messages;
+  let multimodalMessages: ChatMessage[] = messages;
   if (attachments && attachments.length > 0 && messages.length > 0) {
     const lastMessage = messages[messages.length - 1];
-    if (lastMessage.role === 'user') {
+    if (lastMessage.role === 'user' && typeof lastMessage.content === 'string') {
       // Convert files to the format expected by AI SDK
       const fileParts = attachments.map(attachment => ({
         type: 'image' as const, // Use 'image' for Gemini multimodal
@@ -202,7 +213,7 @@ Please use this context to provide more personalized and contextual responses wh
       const result = await withRetry(async () => {
         return streamText({
           model,
-          messages: multimodalMessages,
+          messages: multimodalMessages as any,
         });
       }, 2, 1000);
       

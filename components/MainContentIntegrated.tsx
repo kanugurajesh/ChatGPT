@@ -1018,7 +1018,7 @@ export function MainContent({
               { role: 'assistant' as const, content: fullContent }
             ];
             
-            backgroundMemorySaver.saveMemory(memoryMessages, userId);
+            backgroundMemorySaver.addMemoryTask(memoryMessages, { userId });
             setIsStoringMemory(true);
             
             const taskId = Date.now().toString();
