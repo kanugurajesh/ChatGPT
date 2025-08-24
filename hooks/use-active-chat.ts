@@ -4,11 +4,20 @@ import { useState, useEffect, useCallback } from 'react'
 import { useUser } from '@clerk/nextjs'
 import { ChatService } from '@/lib/services/chatService'
 
+interface FileAttachment {
+  type: 'file';
+  mediaType: string;
+  url: string;
+  name: string;
+  size: number;
+}
+
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant' | 'system'
   content: string
   timestamp: Date
+  attachments?: FileAttachment[]
   metadata?: any
 }
 
@@ -61,6 +70,7 @@ export function useActiveChat(initialChatId?: string) {
           role: msg.role,
           content: msg.content,
           timestamp: new Date(msg.timestamp),
+          attachments: msg.attachments || [],
           metadata: msg.metadata,
         })),
         createdAt: new Date(chatData.createdAt),
@@ -117,6 +127,7 @@ export function useActiveChat(initialChatId?: string) {
           role: msg.role,
           content: msg.content,
           timestamp: new Date(msg.timestamp),
+          attachments: msg.attachments || [],
           metadata: msg.metadata,
         })) || [],
         createdAt: new Date(newChat.createdAt),
@@ -152,6 +163,7 @@ export function useActiveChat(initialChatId?: string) {
       role,
       content,
       timestamp: new Date(),
+      attachments: metadata?.attachments || [],
       metadata,
     }
 
@@ -209,6 +221,7 @@ export function useActiveChat(initialChatId?: string) {
           role: msg.role,
           content: msg.content,
           timestamp: new Date(msg.timestamp),
+          attachments: msg.attachments || [],
           metadata: msg.metadata,
         })),
         createdAt: new Date(updatedChat.createdAt),

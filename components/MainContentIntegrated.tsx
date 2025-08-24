@@ -29,6 +29,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/github-dark.css';
 import { backgroundMemorySaver } from '@/lib/services/backgroundSaver';
+import { ImageSkeleton } from "./ui/image-skeleton";
 
 interface FileAttachment {
   type: 'file';
@@ -131,6 +132,7 @@ export function MainContent({
   const [isFileDialogOpen, setIsFileDialogOpen] = useState(false);
   const [generatedImages, setGeneratedImages] = useState<{[messageId: string]: {url: string, publicId: string}}>({});
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [generatingImageMessageIds, setGeneratingImageMessageIds] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const { isMobile } = useResponsive();
@@ -172,14 +174,152 @@ export function MainContent({
       
       // Load messages from activeChat into local state
       if (activeChat?.id === activeChatId && shouldLoadFromDB) {
+        console.log('Loading chat from DB:', {
+          chatId: activeChatId,
+          messageCount: activeChat.messages.length,
+          messages: activeChat.messages.map(m => ({
+            id: m.id,
+            role: m.role,
+            hasAttachments: !!(m.attachments && m.attachments.length > 0),
+            hasGeneratedImage: !!(m.metadata?.generatedImage),
+            metadata: m.metadata
+          }))
+        });
+
         const dbMessages: Message[] = activeChat.messages.map(msg => ({
           id: msg.id,
           content: msg.content,
           role: msg.role,
           timestamp: msg.timestamp,
+          attachments: msg.attachments || [], // Provide default empty array
         }));
+        
+        // Method 1: Restore generated images from message metadata (existing approach)
+        const restoredFromMetadata: {[messageId: string]: {url: string, publicId: string}} = {};
+        let imageCountFromMetadata = 0;
+        activeChat.messages.forEach(msg => {
+          if (msg.metadata?.generatedImage && msg.metadata.generatedImage.url) {
+            restoredFromMetadata[msg.id] = {
+              url: msg.metadata.generatedImage.url,
+              publicId: msg.metadata.generatedImage.publicId
+            };
+            imageCountFromMetadata++;
+            console.log('📝 Restored image from metadata:', {
+              messageId: msg.id,
+              imageUrl: msg.metadata.generatedImage.url,
+              publicId: msg.metadata.generatedImage.publicId
+            });
+          }
+        });
+        
+        // Method 2: Query GeneratedImage collection as fallback (new robust approach)
+        const loadGeneratedImagesFromAPI = async () => {
+          try {
+            console.log('🔍 Querying GeneratedImage collection for chat:', activeChatId);
+            const response = await fetch(`/api/images/gallery?type=generated&chatId=${activeChatId}`);
+            
+            if (response.ok) {
+              const data = await response.json();
+              console.log('📊 Generated images from API:', {
+                count: data.images?.length || 0,
+                images: data.images?.map((img: any) => ({
+                  id: img.id,
+                  url: img.cloudinaryUrl,
+                  generatedAt: img.generatedAt
+                }))
+              });
+
+              // Match generated images to assistant messages by messageId
+              const restoredFromAPI: {[messageId: string]: {url: string, publicId: string}} = {};
+              
+              if (data.images && data.images.length > 0) {
+                const assistantMessages = activeChat.messages.filter(m => m.role === 'assistant');
+                
+                data.images.forEach((apiImage: any, index: number) => {
+                  // Method 1: Match by messageId if available (for new images)
+                  if (apiImage.messageId) {
+                    restoredFromAPI[apiImage.messageId] = {
+                      url: apiImage.cloudinaryUrl,
+                      publicId: apiImage.cloudinaryPublicId
+                    };
+                    console.log('🔗 Matched API image to message by messageId:', {
+                      messageId: apiImage.messageId,
+                      imageUrl: apiImage.cloudinaryUrl,
+                      generatedAt: apiImage.generatedAt
+                    });
+                  } 
+                  // Method 2: Fallback to order-based matching for legacy images (temporary)
+                  else if (assistantMessages[index]) {
+                    const messageId = assistantMessages[index].id;
+                    restoredFromAPI[messageId] = {
+                      url: apiImage.cloudinaryUrl,
+                      publicId: apiImage.cloudinaryPublicId
+                    };
+                    console.log('🔄 Matched legacy image by order (temporary fix):', {
+                      messageId,
+                      imageUrl: apiImage.cloudinaryUrl,
+                      generatedAt: apiImage.generatedAt,
+                      warning: 'Legacy image without messageId - should be updated'
+                    });
+                  } else {
+                    console.warn('⚠️ Unable to match image - no messageId and no corresponding assistant message:', {
+                      imageId: apiImage.id,
+                      generatedAt: apiImage.generatedAt,
+                      chatId: apiImage.chatId,
+                      availableAssistantMessages: assistantMessages.length
+                    });
+                  }
+                });
+              }
+
+              // Combine both methods - metadata takes precedence, API as fallback
+              const combinedImages = { ...restoredFromAPI, ...restoredFromMetadata };
+              
+              console.log('✅ Chat restoration complete:', {
+                messagesLoaded: dbMessages.length,
+                imagesFromMetadata: imageCountFromMetadata,
+                imagesFromAPI: Object.keys(restoredFromAPI).length,
+                totalImagesRestored: Object.keys(combinedImages).length,
+                finalImages: Object.keys(combinedImages).map(msgId => ({
+                  messageId: msgId,
+                  url: combinedImages[msgId].url,
+                  publicId: combinedImages[msgId].publicId
+                }))
+              });
+              
+              // Validate image URLs before setting state
+              const validatedImages: {[messageId: string]: {url: string, publicId: string}} = {};
+              const validationPromises = Object.entries(combinedImages).map(async ([messageId, imageData]) => {
+                try {
+                  // Quick validation - just check if URL is a valid string and has expected format
+                  if (imageData.url && typeof imageData.url === 'string' && imageData.url.startsWith('http')) {
+                    validatedImages[messageId] = imageData;
+                    console.log('✅ Image URL validated:', { messageId, url: imageData.url });
+                  } else {
+                    console.warn('⚠️ Invalid image URL detected:', { messageId, url: imageData.url });
+                  }
+                } catch (error) {
+                  console.error('❌ Error validating image:', { messageId, error });
+                }
+              });
+              
+              await Promise.allSettled(validationPromises);
+              setGeneratedImages(validatedImages);
+            } else {
+              console.warn('⚠️ Failed to fetch generated images from API, using metadata only');
+              setGeneratedImages(restoredFromMetadata);
+            }
+          } catch (error) {
+            console.error('❌ Error loading generated images from API:', error);
+            setGeneratedImages(restoredFromMetadata);
+          }
+        };
+        
         setLocalMessages(dbMessages);
         setShouldLoadFromDB(false);
+        
+        // Load generated images (async, won't block UI)
+        loadGeneratedImagesFromAPI();
       }
     } else {
       // Reset for new chat - clear everything
@@ -196,6 +336,7 @@ export function MainContent({
       setBackgroundMemoryTasks([]);
       setGeneratedImages({});
       setIsGeneratingImage(false);
+      setGeneratingImageMessageIds(new Set());
     }
   }, [activeChatId, activeChat, shouldLoadFromDB, clearActiveChat]);
 
@@ -262,27 +403,51 @@ export function MainContent({
   };
 
   // Image generation function
-  const handleImageGeneration = async (prompt: string): Promise<{url: string, publicId: string, imageId: string} | null> => {
+  const handleImageGeneration = async (prompt: string, chatId: string, messageId?: string): Promise<{url: string, publicId: string, imageId: string} | null> => {
     try {
       setIsGeneratingImage(true);
       
+      console.log('🎨 Starting image generation:', {
+        prompt: prompt.trim(),
+        chatId: chatId,
+        messageId: messageId,
+        activeChatId: activeChatId, // For comparison
+        hasActiveChat: !!activeChat,
+        activeChatTitle: activeChat?.title
+      });
+
       const response = await fetch("/api/images/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
           prompt: prompt.trim(),
-          chatId: activeChatId
+          chatId: chatId, // Use the passed chatId parameter
+          messageId: messageId
         }),
       });
 
       const result = await response.json();
 
       if (!response.ok) {
-        console.error('Image generation failed:', result.error);
+        console.error('🔥 Image generation API failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: result.error,
+          prompt: prompt.trim(),
+          chatId: chatId,
+          messageId: messageId
+        });
         return null;
       }
 
       if (result.success && result.imageUrl) {
+        console.log('🎨 Image generation successful:', {
+          imageUrl: result.imageUrl,
+          imageId: result.imageId,
+          messageId: messageId,
+          prompt: prompt.trim(),
+          metadata: result.metadata
+        });
         return {
           url: result.imageUrl,
           publicId: result.cloudinaryPublicId,
@@ -290,9 +455,20 @@ export function MainContent({
         };
       }
 
+      console.warn('⚠️ Image generation response missing data:', {
+        success: result.success,
+        hasImageUrl: !!result.imageUrl,
+        result: result
+      });
       return null;
     } catch (error) {
-      console.error('Error during image generation:', error);
+      console.error('💥 Critical error during image generation:', {
+        error: error instanceof Error ? error.message : error,
+        stack: error instanceof Error ? error.stack : undefined,
+        prompt: prompt.trim(),
+        chatId: chatId,
+        messageId: messageId
+      });
       return null;
     } finally {
       setIsGeneratingImage(false);
@@ -365,7 +541,7 @@ export function MainContent({
       const assistantId = crypto.randomUUID();
       let assistantMessage: Message = {
         id: assistantId,
-        content: isImageRequest ? 'Generating image...' : '',
+        content: isImageRequest ? '' : '',
         role: 'assistant',
         timestamp: new Date(),
       };
@@ -379,8 +555,14 @@ export function MainContent({
         // Handle image generation
         setIsStreaming(true);
         
-        // Generate image
-        const imageResult = await handleImageGeneration(content.trim());
+        // Add this message ID to generating set
+        setGeneratingImageMessageIds(prev => new Set([...prev, assistantId]));
+        
+        // Generate image - use currentChatId (not activeChatId which can be null)
+        if (!currentChatId) {
+          throw new Error('No valid chat ID for image generation');
+        }
+        const imageResult = await handleImageGeneration(content.trim(), currentChatId, assistantId);
         
         if (imageResult) {
           // Store the generated image
@@ -413,6 +595,13 @@ export function MainContent({
         );
 
         setIsStreaming(false);
+        
+        // Remove from generating set
+        setGeneratingImageMessageIds(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(assistantId);
+          return newSet;
+        });
 
         // Save to MongoDB in background
         if (imageResult || !imageResult) { // Save regardless of success/failure
@@ -420,22 +609,51 @@ export function MainContent({
           
           const backgroundSave = async () => {
             try {
+              console.log('🔄 Starting background save for image generation:', {
+                chatId: activeChatId,
+                hasActiveChat: !!activeChat,
+                imageResult: imageResult ? {
+                  url: imageResult.url,
+                  publicId: imageResult.publicId,
+                  imageId: imageResult.imageId
+                } : null,
+                messageContent: assistantMessage.content
+              });
+
               // For existing chats, save the user message first
               if (activeChat) {
+                console.log('💾 Saving user message...');
                 await addMessage('user', content.trim(), { attachments }, false);
               }
               
-              // Then save the assistant response
-              await addMessage('assistant', assistantMessage.content, { 
+              // Then save the assistant response with image metadata
+              const messageMetadata = { 
                 model: selectedModel,
                 tokens: assistantMessage.content.length,
-                imageGenerated: !!imageResult
-              }, false);
+                imageGenerated: !!imageResult,
+                generatedImage: imageResult ? {
+                  url: imageResult.url,
+                  publicId: imageResult.publicId,
+                  imageId: imageResult.imageId,
+                  messageId: assistantId, // Link image to message
+                  prompt: content.trim(),
+                  generatedAt: new Date().toISOString()
+                } : undefined
+              };
+
+              console.log('💾 Saving assistant message with metadata:', messageMetadata);
               
-              console.log('MongoDB background save completed successfully');
+              await addMessage('assistant', assistantMessage.content, messageMetadata, false);
+              
+              console.log('✅ MongoDB background save completed successfully');
               return true;
             } catch (error) {
-              console.error('MongoDB background save failed:', error);
+              console.error('❌ MongoDB background save failed:', {
+                error: error instanceof Error ? error.message : error,
+                stack: error instanceof Error ? error.stack : undefined,
+                chatId: activeChatId,
+                imageResult: imageResult ? 'present' : 'null'
+              });
               return false;
             } finally {
               setIsSavingToMongoDB(false);
@@ -640,7 +858,7 @@ export function MainContent({
       const newAssistantId = crypto.randomUUID();
       const newAssistantMessage: Message = {
         id: newAssistantId,
-        content: isImageRequest ? 'Regenerating image...' : '',
+        content: isImageRequest ? '' : '',
         role: 'assistant',
         timestamp: new Date(),
       };
@@ -651,7 +869,8 @@ export function MainContent({
 
       if (isImageRequest) {
         // Handle image regeneration
-        const imageResult = await handleImageGeneration(userMessage.content);
+        setGeneratingImageMessageIds(prev => new Set([...prev, newAssistantId]));
+        const imageResult = await handleImageGeneration(userMessage.content, activeChatId!, newAssistantId);
         
         if (imageResult) {
           setGeneratedImages(prev => ({
@@ -672,6 +891,13 @@ export function MainContent({
               : msg
           )
         );
+        
+        // Remove from generating set
+        setGeneratingImageMessageIds(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(newAssistantId);
+          return newSet;
+        });
 
         // Save to MongoDB
         setIsSavingToMongoDB(true);
@@ -680,7 +906,15 @@ export function MainContent({
             model: selectedModel,
             tokens: newAssistantMessage.content.length,
             imageGenerated: !!imageResult,
-            regenerated: true
+            regenerated: true,
+            generatedImage: imageResult ? {
+              url: imageResult.url,
+              publicId: imageResult.publicId,
+              imageId: imageResult.imageId,
+              messageId: newAssistantId, // Link image to message
+              prompt: userMessage.content,
+              generatedAt: new Date().toISOString()
+            } : undefined
           }, false);
         } catch (error) {
           console.error('Failed to save regenerated image response to MongoDB:', error);
@@ -826,6 +1060,7 @@ export function MainContent({
     setBackgroundMemoryTasks([]);
     setGeneratedImages({});
     setIsGeneratingImage(false);
+    setGeneratingImageMessageIds(new Set());
   };
 
   const handleTemporaryChatToggle = (enabled: boolean) => {
@@ -841,6 +1076,18 @@ export function MainContent({
       (window as any).resetMainContentChat = resetChat;
     }
   }, []);
+
+  // Debug logging for generated images
+  useEffect(() => {
+    console.log('Generated images state updated:', {
+      imageCount: Object.keys(generatedImages).length,
+      images: Object.entries(generatedImages).map(([messageId, data]) => ({
+        messageId,
+        url: data.url,
+        publicId: data.publicId
+      }))
+    });
+  }, [generatedImages]);
 
   return (
     <div>
@@ -948,7 +1195,6 @@ export function MainContent({
                       {isSignedIn ? (
                         <div className="flex items-center justify-center gap-2">
                           <span>✓ Signed in as {user?.firstName || 'User'}</span>
-                          {isGeneratingImage && <span>• Generating image...</span>}
                           {isSavingToMongoDB && <span>• Saving chat...</span>}
                           {isStoringMemory && <span>• Saving memory...</span>}
                         </div>
@@ -1012,6 +1258,20 @@ export function MainContent({
                                               src={attachment.url}
                                               alt={attachment.name}
                                               className="w-full h-full object-cover"
+                                              onError={(e) => {
+                                                console.error('Failed to load attachment image:', {
+                                                  fileName: attachment.name,
+                                                  url: attachment.url,
+                                                  error: e
+                                                });
+                                                // Replace with file icon on error
+                                                const imgElement = e.target as HTMLImageElement;
+                                                imgElement.style.display = 'none';
+                                                const parent = imgElement.parentElement;
+                                                if (parent) {
+                                                  parent.innerHTML = '<div class="w-10 h-10 rounded bg-gray-600 flex items-center justify-center"><svg class="h-6 w-6 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg></div>';
+                                                }
+                                              }}
                                             />
                                           </div>
                                         ) : (
@@ -1054,45 +1314,65 @@ export function MainContent({
                       ) : (
                         // AI message - left aligned with buttons
                         <div className="flex flex-col">
-                          {/* Display generated image if available */}
-                          {generatedImages[message.id] && (
+                          {/* Display image skeleton while generating or generated image if available */}
+                          {(generatingImageMessageIds.has(message.id) || generatedImages[message.id]) && (
                             <div className="mb-4">
-                              <div className="bg-gray-800 rounded-lg p-4 max-w-lg">
-                                <img
-                                  src={generatedImages[message.id].url}
-                                  alt="Generated image"
-                                  className="w-full h-auto rounded-lg"
-                                  onClick={() => {
-                                    onSetImage(generatedImages[message.id].url);
-                                  }}
-                                  style={{ cursor: 'pointer' }}
-                                />
-                                <div className="mt-2 flex justify-end">
-                                  <Button
-                                    onClick={async () => {
-                                      try {
-                                        const imageUrl = generatedImages[message.id].url;
-                                        const response = await fetch(imageUrl);
-                                        const blob = await response.blob();
-                                        const url = URL.createObjectURL(blob);
-                                        const a = document.createElement('a');
-                                        a.href = url;
-                                        a.download = `generated-image-${Date.now()}.png`;
-                                        document.body.appendChild(a);
-                                        a.click();
-                                        document.body.removeChild(a);
-                                        URL.revokeObjectURL(url);
-                                      } catch (error) {
-                                        console.error('Failed to download image:', error);
-                                      }
+                              {generatingImageMessageIds.has(message.id) ? (
+                                // Show skeleton while generating
+                                <ImageSkeleton />
+                              ) : generatedImages[message.id] ? (
+                                // Show generated image
+                                <div className="bg-gray-800 rounded-lg p-4 max-w-lg">
+                                  <img
+                                    src={generatedImages[message.id].url}
+                                    alt="Generated image"
+                                    className="w-full h-auto rounded-lg"
+                                    onClick={() => {
+                                      onSetImage(generatedImages[message.id].url);
                                     }}
-                                    className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
-                                    size="icon"
-                                  >
-                                    <Download className="w-4 h-4" />
-                                  </Button>
+                                    style={{ cursor: 'pointer' }}
+                                    onError={(e) => {
+                                      console.error('Failed to load generated image:', {
+                                        messageId: message.id,
+                                        imageUrl: generatedImages[message.id].url,
+                                        error: e
+                                      });
+                                      // Hide the broken image
+                                      (e.target as HTMLImageElement).style.display = 'none';
+                                      // Show error message
+                                      const errorDiv = document.createElement('div');
+                                      errorDiv.className = 'text-red-400 text-sm p-2 bg-red-900/20 rounded';
+                                      errorDiv.textContent = 'Image failed to load';
+                                      (e.target as HTMLImageElement).parentNode?.appendChild(errorDiv);
+                                    }}
+                                  />
+                                  <div className="mt-2 flex justify-end">
+                                    <Button
+                                      onClick={async () => {
+                                        try {
+                                          const imageUrl = generatedImages[message.id].url;
+                                          const response = await fetch(imageUrl);
+                                          const blob = await response.blob();
+                                          const url = URL.createObjectURL(blob);
+                                          const a = document.createElement('a');
+                                          a.href = url;
+                                          a.download = `generated-image-${Date.now()}.png`;
+                                          document.body.appendChild(a);
+                                          a.click();
+                                          document.body.removeChild(a);
+                                          URL.revokeObjectURL(url);
+                                        } catch (error) {
+                                          console.error('Failed to download image:', error);
+                                        }
+                                      }}
+                                      className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
+                                      size="icon"
+                                    >
+                                      <Download className="w-4 h-4" />
+                                    </Button>
+                                  </div>
                                 </div>
-                              </div>
+                              ) : null}
                             </div>
                           )}
                           
@@ -1190,9 +1470,9 @@ export function MainContent({
                     </div>
                   ))}
 
-                  {(isLoading || isGeneratingImage) && (
+                  {isLoading && !isGeneratingImage && (
                     <div className="text-gray-400 text-sm animate-pulse">
-                      {isGeneratingImage ? 'Generating image…' : 'ChatGPT is thinking…'}
+                      ChatGPT is thinking…
                     </div>
                   )}
 
@@ -1254,7 +1534,6 @@ export function MainContent({
                     {isSignedIn ? (
                       <div className="flex items-center justify-center gap-2">
                         <span>✓ Signed in as {user?.firstName || 'User'}</span>
-                        {isGeneratingImage && <span>• Generating image...</span>}
                         {isSavingToMongoDB && <span>• Saving chat...</span>}
                         {isStoringMemory && <span>• Saving memory...</span>}
                       </div>

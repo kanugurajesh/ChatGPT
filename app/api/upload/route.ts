@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { uploadFileBuffer } from '@/lib/cloudinary-server';
 import { UserUploadedImage } from '@/lib/models/Image';
 import { connectToMongoDB } from '@/lib/mongodb';
+import mongoose from 'mongoose';
 
 export async function POST(req: NextRequest) {
   try {
@@ -62,6 +63,7 @@ export async function POST(req: NextRequest) {
     await connectToMongoDB();
     
     const userUploadedImage = new UserUploadedImage({
+      id: new mongoose.Types.ObjectId().toString(),
       userId: userId,
       fileName: file.name,
       originalName: file.name,

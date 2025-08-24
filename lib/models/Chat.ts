@@ -1,11 +1,21 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
+// Interface for file attachments
+export interface IAttachment {
+  type: 'file';
+  mediaType: string;
+  url: string;
+  name: string;
+  size: number;
+}
+
 // Interface for individual messages within a chat
 export interface IMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: Date;
+  attachments?: IAttachment[];
   metadata?: {
     model?: string;
     tokens?: number;
@@ -30,6 +40,31 @@ export interface IChat extends Document {
   };
 }
 
+// Attachment schema
+const AttachmentSchema = new Schema({
+  type: {
+    type: String,
+    enum: ['file'],
+    required: true,
+  },
+  mediaType: {
+    type: String,
+    required: true,
+  },
+  url: {
+    type: String,
+    required: true,
+  },
+  name: {
+    type: String,
+    required: true,
+  },
+  size: {
+    type: Number,
+    required: true,
+  },
+});
+
 // Message schema
 const MessageSchema = new Schema<IMessage>({
   id: {
@@ -49,6 +84,7 @@ const MessageSchema = new Schema<IMessage>({
     type: Date,
     default: Date.now,
   },
+  attachments: [AttachmentSchema],
   metadata: {
     type: Schema.Types.Mixed,
     default: {},

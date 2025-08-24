@@ -209,6 +209,7 @@ export class ChatService {
       role,
       content: String(content), // Ensure content is a string
       timestamp: new Date(),
+      attachments: metadata?.attachments || [],
       metadata,
     };
 
