@@ -1348,7 +1348,7 @@ export function MainContent({
         <div
           className={cn(
             "flex flex-col h-screen relative",
-            !activeChat && messages.length === 0 && "gap-y-28"
+            // !activeChat && messages.length === 0 && "gap-y-5"
           )}
         >
           {/* Mobile Header with Full Width Layout */}
@@ -1438,7 +1438,7 @@ export function MainContent({
                         </div>
                       </>
                     ) : (
-                      <div className="text-2xl font-medium text-white mb-8">
+                      <div className="text-2xl font-medium text-white">
                         Ready when you are.
                       </div>
                     )}
