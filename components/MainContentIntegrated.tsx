@@ -1,4 +1,5 @@
 "use client";
+
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,8 +15,6 @@ import {
   Share,
   Download,
   FileText,
-  Menu,
-  Settings,
   Square,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -846,23 +845,35 @@ export function MainContent({
               if (mongoSaveSuccess && isSignedIn && user?.id) {
                 try {
                   const memoryMessages = [
-                    { role: 'user' as const, content: content.trim() },
-                    { role: 'assistant' as const, content: assistantMessage.content }
+                    { role: "user" as const, content: content.trim() },
+                    {
+                      role: "assistant" as const,
+                      content: assistantMessage.content,
+                    },
                   ];
-                  
-                  const memoryTaskId = backgroundMemorySaver.addMemoryTask(memoryMessages, {
-                    chatId: currentChatId,
-                    model: selectedModel,
-                    imageGenerated: !!imageResult,
-                    timestamp: new Date().toISOString()
-                  });
-                  
-                  console.log('Memory storage task queued for image generation:', memoryTaskId);
+
+                  const memoryTaskId = backgroundMemorySaver.addMemoryTask(
+                    memoryMessages,
+                    {
+                      chatId: currentChatId,
+                      model: selectedModel,
+                      imageGenerated: !!imageResult,
+                      timestamp: new Date().toISOString(),
+                    }
+                  );
+
+                  console.log(
+                    "Memory storage task queued for image generation:",
+                    memoryTaskId
+                  );
                 } catch (memoryError) {
-                  console.error('Failed to queue memory storage for image generation:', memoryError);
+                  console.error(
+                    "Failed to queue memory storage for image generation:",
+                    memoryError
+                  );
                 }
               }
-              
+
               // Refresh chat history in sidebar (skip for temporary chats)
               if (!isTemporaryChat) {
                 fetchChatHistory();
@@ -983,19 +994,22 @@ export function MainContent({
             if (mongoSaveSuccess && isSignedIn && user?.id) {
               try {
                 const memoryMessages = [
-                  { role: 'user' as const, content: content.trim() },
-                  { role: 'assistant' as const, content: streamingText.trim() }
+                  { role: "user" as const, content: content.trim() },
+                  { role: "assistant" as const, content: streamingText.trim() },
                 ];
-                
-                const memoryTaskId = backgroundMemorySaver.addMemoryTask(memoryMessages, {
-                  chatId: currentChatId,
-                  model: selectedModel,
-                  timestamp: new Date().toISOString()
-                });
-                
-                console.log('Memory storage task queued:', memoryTaskId);
+
+                const memoryTaskId = backgroundMemorySaver.addMemoryTask(
+                  memoryMessages,
+                  {
+                    chatId: currentChatId,
+                    model: selectedModel,
+                    timestamp: new Date().toISOString(),
+                  }
+                );
+
+                console.log("Memory storage task queued:", memoryTaskId);
               } catch (memoryError) {
-                console.error('Failed to queue memory storage:', memoryError);
+                console.error("Failed to queue memory storage:", memoryError);
               }
             }
 
@@ -1398,12 +1412,7 @@ export function MainContent({
           )}
         </div>
       ) : (
-        <div
-          className={cn(
-            "flex flex-col h-screen relative"
-            // !activeChat && messages.length === 0 && "gap-y-5"
-          )}
-        >
+        <div className={cn("flex flex-col h-screen relative")}>
           {/* Mobile Header with Full Width Layout */}
           {isMobile && (
             <div className="flex items-center justify-between py-3 px-4 bg-[#2f2f2f] w-full">
@@ -1417,20 +1426,34 @@ export function MainContent({
                     className="text-white hover:bg-[#404040] w-10 h-10 p-0 flex-shrink-0"
                     aria-label="Open navigation menu"
                   >
-<svg 
-                      width="20" 
-                      height="20" 
-                      viewBox="0 0 20 20" 
-                      fill="currentColor" 
-                      xmlns="http://www.w3.org/2000/svg" 
-                      data-rtl-flip="" 
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
+                      xmlns="http://www.w3.org/2000/svg"
+                      data-rtl-flip=""
                       className="icon-lg text-token-text-secondary mx-2"
                     >
                       <circle cx="15" cy="5" r="5" fill="#0285FF"></circle>
                       {/* Top line */}
-                      <rect x="2" y="4" width="14" height="1.5" rx="0.75" fill="currentColor"></rect>
+                      <rect
+                        x="2"
+                        y="4"
+                        width="14"
+                        height="1.5"
+                        rx="0.75"
+                        fill="currentColor"
+                      ></rect>
                       {/* Bottom line */}
-                      <rect x="2" y="14" width="16" height="1.5" rx="0.75" fill="currentColor"></rect>
+                      <rect
+                        x="2"
+                        y="14"
+                        width="16"
+                        height="1.5"
+                        rx="0.75"
+                        fill="currentColor"
+                      ></rect>
                     </svg>
                   </Button>
                 )}
@@ -1457,13 +1480,19 @@ export function MainContent({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
-                      onClick={() => handleTemporaryChatToggle(!isTemporaryChat)}
+                      onClick={() =>
+                        handleTemporaryChatToggle(!isTemporaryChat)
+                      }
                       variant="ghost"
                       size="icon"
                       className="text-white hover:bg-[#404040] w-10 h-10 p-0 flex-shrink-0"
-                      aria-label={isTemporaryChat ? "Turn off temporary chat" : "Turn on temporary chat"}
+                      aria-label={
+                        isTemporaryChat
+                          ? "Turn off temporary chat"
+                          : "Turn on temporary chat"
+                      }
                     >
-{isTemporaryChat ? (
+                      {isTemporaryChat ? (
                         // Active state - show checkmark version
                         <svg
                           width="20"
@@ -1474,7 +1503,10 @@ export function MainContent({
                           data-rtl-flip=""
                           className="icon"
                         >
-                          <path d="M11.7304 7.35195C11.9273 7.04193 12.3384 6.95002 12.6484 7.14687C12.9582 7.34374 13.0502 7.75487 12.8535 8.06484L9.67868 13.0648C9.56765 13.2397 9.38114 13.3525 9.17477 13.3705C8.96844 13.3885 8.76558 13.3096 8.62595 13.1566L6.80075 11.1566L6.7197 11.0482C6.56149 10.7827 6.60647 10.4337 6.84372 10.2172C7.08112 10.0007 7.43256 9.98823 7.68259 10.1703L7.78317 10.2601L9.02145 11.6166L11.7304 7.35195Z" data-rtl-flip=""></path>
+                          <path
+                            d="M11.7304 7.35195C11.9273 7.04193 12.3384 6.95002 12.6484 7.14687C12.9582 7.34374 13.0502 7.75487 12.8535 8.06484L9.67868 13.0648C9.56765 13.2397 9.38114 13.3525 9.17477 13.3705C8.96844 13.3885 8.76558 13.3096 8.62595 13.1566L6.80075 11.1566L6.7197 11.0482C6.56149 10.7827 6.60647 10.4337 6.84372 10.2172C7.08112 10.0007 7.43256 9.98823 7.68259 10.1703L7.78317 10.2601L9.02145 11.6166L11.7304 7.35195Z"
+                            data-rtl-flip=""
+                          ></path>
                           <path d="M4.52148 15.1664C4.61337 14.8108 4.39951 14.4478 4.04395 14.3559C3.73281 14.2756 3.41605 14.4295 3.28027 14.7074L3.2334 14.8334C3.13026 15.2324 3.0046 15.6297 2.86133 16.0287L2.71289 16.4281C2.63179 16.6393 2.66312 16.8775 2.79688 17.06C2.93067 17.2424 3.14825 17.3443 3.37402 17.3305L3.7793 17.3002C4.62726 17.2265 5.44049 17.0856 6.23438 16.8764C6.84665 17.1788 7.50422 17.4101 8.19434 17.558C8.55329 17.6347 8.9064 17.4062 8.9834 17.0473C9.06036 16.6881 8.83177 16.3342 8.47266 16.2572C7.81451 16.1162 7.19288 15.8862 6.62305 15.5814C6.50913 15.5205 6.38084 15.4946 6.25391 15.5053L6.12793 15.5277C5.53715 15.6955 4.93256 15.819 4.30566 15.9027C4.33677 15.8052 4.36932 15.7081 4.39844 15.6098L4.52148 15.1664Z"></path>
                           <path d="M15.7998 14.5365C15.5786 14.3039 15.2291 14.2666 14.9668 14.4301L14.8604 14.5131C13.9651 15.3633 12.8166 15.9809 11.5273 16.2572C11.1682 16.3342 10.9396 16.6881 11.0166 17.0473C11.0936 17.4062 11.4467 17.6347 11.8057 17.558C13.2388 17.2509 14.5314 16.5858 15.5713 15.6644L15.7754 15.4769C16.0417 15.224 16.0527 14.8028 15.7998 14.5365Z"></path>
                           <path d="M2.23828 7.58925C1.97668 8.34846 1.83496 9.15956 1.83496 10.0004C1.835 10.7359 1.94324 11.4483 2.14551 12.1234L2.23828 12.4105C2.35793 12.7576 2.73588 12.9421 3.08301 12.8226C3.3867 12.718 3.56625 12.4153 3.52637 12.1088L3.49512 11.9769C3.2808 11.3548 3.16508 10.6908 3.16504 10.0004C3.16504 9.30975 3.28072 8.64512 3.49512 8.02284C3.61476 7.67561 3.43024 7.29679 3.08301 7.17714C2.73596 7.05777 2.35799 7.2423 2.23828 7.58925Z"></path>
@@ -1554,7 +1586,7 @@ export function MainContent({
                         </div>
                       </>
                     ) : (
-                      <div className="text-2xl font-medium text-white">
+                      <div className={cn("text-2xl font-medium text-white", isMobile && "mt-20")}>
                         Ready when you are.
                       </div>
                     )}
@@ -1677,20 +1709,30 @@ export function MainContent({
                         <div className="flex flex-col items-end mb-6 group">
                           <div className="bg-[#2f2f2f] text-white rounded-3xl px-5 py-3 max-w-[80%] text-base relative">
                             {editingMessageId === message.id ? (
-                              <div className={cn(
-                                "relative bg-[#2A2A2A] rounded-3xl border border-gray-700 p-0",
-                                isMobile ? "w-[95%]" : "w-full max-w-4xl"
-                              )}>
+                              <div
+                                className={cn(
+                                  "bg-[#2A2A2A] rounded-3xl border border-gray-700 p-0",
+                                  isMobile ? "w-[95%]" : "w-full max-w-4xl"
+                                )}
+                              >
                                 <Textarea
                                   value={editContent}
                                   onChange={(e) =>
                                     setEditContent(e.target.value)
                                   }
-                                  className="w-full bg-transparent border-none text-white placeholder-gray-400 resize-none min-h-[60px] max-h-[200px] focus:ring-0 focus:outline-none text-base p-4 pr-24"
+                                  className={cn(
+                                    "w-full bg-transparent border-none text-white placeholder-gray-400 resize-none min-h-[60px] max-h-[200px] focus:ring-0 focus:outline-none text-base p-4",
+                                    isMobile ? "pb-16" : "pr-24"
+                                  )}
                                   autoFocus
                                   placeholder="Edit your message..."
                                 />
-                                <div className="absolute bottom-3 right-3 flex space-x-2">
+                                <div className={cn(
+                                  "flex space-x-2 p-3",
+                                  isMobile 
+                                    ? "justify-end border-t border-gray-600" 
+                                    : "absolute bottom-3 right-3"
+                                )}>
                                   <Button
                                     onClick={handleCancelEdit}
                                     variant="outline"
