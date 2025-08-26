@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -9,7 +8,7 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { ChevronDown, MessageCircle, Check, Crown } from "lucide-react";
+import { ChevronDown, MessageCircle, Check } from "lucide-react";
 
 interface ChatHeaderProps {
   isTemporaryChat: boolean;
@@ -30,7 +29,7 @@ export function ChatHeader({
   onModelChange 
 }: ChatHeaderProps) {
   return (
-    <div className="flex items-center justify-between p-4 bg-[#212121]">
+    <div className="flex w-full justify-between items-center p-4 bg-[#212121]">
       {/* Model Selector */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

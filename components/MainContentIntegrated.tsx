@@ -1188,7 +1188,7 @@ export function MainContent({
           
           {/* Chat Header - Medium and Desktop screens */}
           {!isMobile && (
-            <div className="flex items-center justify-between">
+            <div className="flex">
               <ChatHeader
                 isTemporaryChat={isTemporaryChat}
                 onTemporaryChatToggle={handleTemporaryChatToggle}

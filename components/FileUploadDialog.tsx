@@ -4,8 +4,6 @@ import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { X, Upload, FileText, Image as ImageIcon, File, Loader2 } from "lucide-react";
-import { cn } from "@/lib/utils";
-import Image from "next/image";
 
 interface FileUploadDialogProps {
   isOpen: boolean;
