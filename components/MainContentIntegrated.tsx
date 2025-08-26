@@ -169,7 +169,7 @@ export function MainContent({
 
   // Use local messages as the source of truth, only fall back to DB when needed
   const messages: Message[] =
-    localMessages.length > 0 || !shouldLoadFromDB
+    localMessages.length > 0 || !shouldLoadFromDB || isTemporaryChat
       ? localMessages
       : activeChat?.messages.map((msg) => ({
           id: msg.id,
@@ -185,11 +185,19 @@ export function MainContent({
   // Load from DB when active chat changes or when there are no local messages
   useEffect(() => {
     if (activeChatId) {
+      // Skip entire effect for temporary chats to avoid state interference
+      if (activeChatId.startsWith('temp-')) {
+        return;
+      }
+      
       // Always load the chat when activeChatId changes
       if (!activeChat || activeChat.id !== activeChatId) {
+        // This is a persistent chat, disable temporary mode
+        setIsTemporaryChat(false);
         // Reset local state when switching chats
         setLocalMessages([]);
         setShouldLoadFromDB(true);
+        // Load from database
         loadChat(activeChatId);
       }
 
@@ -528,6 +536,7 @@ export function MainContent({
           prompt: prompt.trim(),
           chatId: chatId, // Use the passed chatId parameter
           messageId: messageId,
+          isTemporaryChat: isTemporaryChat,
         }),
         signal: abortController?.signal,
       });
@@ -587,13 +596,13 @@ export function MainContent({
     }
   };
 
-  // Streaming API call with MongoDB persistence
+  // Streaming API call with conditional persistence
   const handleSendMessage = async (
     content: string = inputValue,
     attachments?: FileAttachment[]
   ) => {
     if (!content.trim() && !attachments?.length) return;
-    if (!isSignedIn) {
+    if (!isSignedIn && !isTemporaryChat) {
       console.error("User must be signed in to send messages");
       return;
     }
@@ -608,29 +617,43 @@ export function MainContent({
     try {
       let currentChatId = activeChatId;
 
-      // Create new chat if this is the first message
+      // Handle chat creation differently for temporary vs persistent chats
       if (!activeChat) {
-        const title = generateTitle(content.trim());
-        currentChatId =
-          (await createNewChat(title, {
-            role: "user",
-            content: content.trim(),
-          })) || undefined;
+        if (isTemporaryChat) {
+          // For temporary chats, generate a local ID and skip database operations
+          currentChatId = `temp-${crypto.randomUUID()}`;
+          // Create a temporary activeChat object
+          const tempActiveChat = {
+            id: currentChatId,
+            title: generateTitle(content.trim()),
+            messages: [],
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+          // We'll manage this locally instead of through the hook
+          // Notify parent component about temporary chat (use temp ID)
+          onChatCreated?.(currentChatId);
+        } else {
+          // For persistent chats, create in database
+          const title = generateTitle(content.trim());
+          currentChatId =
+            (await createNewChat(title, {
+              role: "user",
+              content: content.trim(),
+            })) || undefined;
 
-        if (!currentChatId) {
-          throw new Error("Failed to create new chat");
+          if (!currentChatId) {
+            throw new Error("Failed to create new chat");
+          }
+
+          // Notify parent component about new chat (not for temporary chats)
+          onChatCreated?.(currentChatId);
+
+          // Refresh chat history in sidebar
+          fetchChatHistory();
+
+          // Continue with AI response since the initial message was already added
         }
-
-        // Notify parent component about new chat
-        onChatCreated?.(currentChatId);
-
-        // Refresh chat history in sidebar
-        fetchChatHistory();
-
-        // Continue with AI response since the initial message was already added
-      } else {
-        // For existing chats, we'll add the user message to local state (already done below)
-        // MongoDB save will happen in the background after the AI response
       }
 
       // Get current messages for context
@@ -730,8 +753,8 @@ export function MainContent({
           return newSet;
         });
 
-        // Save to MongoDB in background
-        if (imageResult || !imageResult) {
+        // Save to MongoDB in background (skip for temporary chats)
+        if ((imageResult || !imageResult) && !isTemporaryChat) {
           // Save regardless of success/failure
           setIsSavingToMongoDB(true);
 
@@ -843,8 +866,10 @@ export function MainContent({
 
           backgroundSave()
             .then((mongoSaveSuccess) => {
-              // Refresh chat history in sidebar
-              fetchChatHistory();
+              // Refresh chat history in sidebar (skip for temporary chats)
+              if (!isTemporaryChat) {
+                fetchChatHistory();
+              }
             })
             .catch((error) => {
               console.error("Background save workflow failed:", error);
@@ -860,9 +885,10 @@ export function MainContent({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: contextMessages,
-          userId: user?.id || userId,
+          userId: isTemporaryChat ? 'anonymous' : (user?.id || userId),
           attachments: attachments,
           chatId: currentChatId,
+          isTemporaryChat: isTemporaryChat,
         }),
         signal: controller.signal,
       });
@@ -917,8 +943,8 @@ export function MainContent({
       // End streaming mode immediately - local state is now the source of truth
       setIsStreaming(false);
 
-      // Save to MongoDB in background without affecting UI state
-      if (streamingText.trim()) {
+      // Save to MongoDB in background without affecting UI state (skip for temporary chats)
+      if (streamingText.trim() && !isTemporaryChat) {
         setIsSavingToMongoDB(true);
 
         // Background save - don't await this, let it run async
@@ -953,8 +979,8 @@ export function MainContent({
         // Start background save and handle memory storage
         backgroundSave()
           .then((mongoSaveSuccess) => {
-            // Only save to memory if MongoDB save was successful
-            if (isSignedIn && user?.id && mongoSaveSuccess) {
+            // Only save to memory if MongoDB save was successful and not temporary chat
+            if (isSignedIn && user?.id && mongoSaveSuccess && !isTemporaryChat) {
               const conversationToStore = [
                 { role: "user" as const, content: content.trim() },
                 { role: "assistant" as const, content: streamingText.trim() },
@@ -970,8 +996,10 @@ export function MainContent({
               });
             }
 
-            // Refresh chat history in sidebar
-            fetchChatHistory();
+            // Refresh chat history in sidebar (skip for temporary chats)
+            if (!isTemporaryChat) {
+              fetchChatHistory();
+            }
           })
           .catch((error) => {
             console.error("Background save workflow failed:", error);
@@ -1143,10 +1171,11 @@ export function MainContent({
           return newSet;
         });
 
-        // Save to MongoDB
-        setIsSavingToMongoDB(true);
-        try {
-          await addMessage(
+        // Save to MongoDB (skip for temporary chats)
+        if (!isTemporaryChat) {
+          setIsSavingToMongoDB(true);
+          try {
+            await addMessage(
             "assistant",
             newAssistantMessage.content,
             {
@@ -1167,13 +1196,14 @@ export function MainContent({
             },
             false
           );
-        } catch (error) {
-          console.error(
-            "Failed to save regenerated image response to MongoDB:",
-            error
-          );
-        } finally {
-          setIsSavingToMongoDB(false);
+          } catch (error) {
+            console.error(
+              "Failed to save regenerated image response to MongoDB:",
+              error
+            );
+          } finally {
+            setIsSavingToMongoDB(false);
+          }
         }
       } else {
         // Handle text regeneration
@@ -1193,9 +1223,10 @@ export function MainContent({
           },
           body: JSON.stringify({
             messages: historyForAPI,
-            userId,
+            userId: isTemporaryChat ? 'anonymous' : userId,
             chatId: activeChatId,
             attachments: userMessage.attachments,
+            isTemporaryChat: isTemporaryChat,
           }),
         });
 
@@ -1227,9 +1258,10 @@ export function MainContent({
           );
         }
 
-        // Save the final response to MongoDB
-        setIsSavingToMongoDB(true);
-        try {
+        // Save the final response to MongoDB (skip for temporary chats)
+        if (!isTemporaryChat) {
+          setIsSavingToMongoDB(true);
+          try {
           await addMessage(
             "assistant",
             fullContent,
@@ -1241,8 +1273,8 @@ export function MainContent({
             false
           );
 
-          // Start background memory saving for authenticated users
-          if (isSignedIn && fullContent.trim()) {
+          // Start background memory saving for authenticated users (skip for temporary chats)
+          if (isSignedIn && fullContent.trim() && !isTemporaryChat) {
             const memoryMessages = [
               { role: "user" as const, content: userMessage.content },
               { role: "assistant" as const, content: fullContent },
@@ -1263,18 +1295,21 @@ export function MainContent({
               }
             }, 3000);
           }
-        } catch (error) {
-          console.error(
-            "Failed to save regenerated response to MongoDB:",
-            error
-          );
-        } finally {
-          setIsSavingToMongoDB(false);
+          } catch (error) {
+            console.error(
+              "Failed to save regenerated response to MongoDB:",
+              error
+            );
+          } finally {
+            setIsSavingToMongoDB(false);
+          }
         }
       }
 
-      // Refresh chat history
-      fetchChatHistory();
+      // Refresh chat history (skip for temporary chats)
+      if (!isTemporaryChat) {
+        fetchChatHistory();
+      }
     } catch (error) {
       console.error("Error regenerating response:", error);
       // Restore original message on error
@@ -1327,6 +1362,10 @@ export function MainContent({
 
   const handleTemporaryChatToggle = (enabled: boolean) => {
     setIsTemporaryChat(enabled);
+    // Reset chat when switching modes to avoid mixing temporary and persistent data
+    if (messages.length > 0) {
+      resetChat();
+    }
   };
 
   const handleModelChange = (model: string) => {
@@ -1376,7 +1415,7 @@ export function MainContent({
         <div
           className={cn(
             "flex flex-col h-screen relative",
-            !activeChat && "gap-y-44"
+            !activeChat && messages.length === 0 && "gap-y-44"
           )}
         >
           {/* Mobile Header with Full Width Layout */}
@@ -1541,7 +1580,12 @@ export function MainContent({
 
                     {/* Status indicator */}
                     <div className="text-center mt-3 text-xs text-gray-500">
-                      {isSignedIn ? (
+                      {isTemporaryChat ? (
+                        <div className="flex items-center justify-center gap-2">
+                          <span className="text-orange-400">🔒 Temporary Chat Mode</span>
+                          <span>• Not saved to history or memory</span>
+                        </div>
+                      ) : isSignedIn ? (
                         <div className="flex items-center justify-center gap-2">
                           <span>
                             ✓ Signed in as {user?.firstName || "User"}
@@ -2013,7 +2057,12 @@ export function MainContent({
 
                   {/* Status indicator */}
                   <div className="text-center mt-3 text-xs text-gray-500">
-                    {isSignedIn ? (
+                    {isTemporaryChat ? (
+                      <div className="flex items-center justify-center gap-2">
+                        <span className="text-orange-400">🔒 Temporary Chat Mode</span>
+                        <span>• Not saved to history or memory</span>
+                      </div>
+                    ) : isSignedIn ? (
                       <div className="flex items-center justify-center gap-2">
                         <span>✓ Signed in as {user?.firstName || "User"}</span>
                         {isSavingToMongoDB && <span>• Saving chat...</span>}

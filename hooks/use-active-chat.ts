@@ -39,6 +39,12 @@ export function useActiveChat(initialChatId?: string) {
 
   // Load a chat by ID
   const loadChat = useCallback(async (chatId: string) => {
+    // Skip loading for temporary chats (they don't exist in database)
+    if (chatId.startsWith('temp-')) {
+      console.log('Skipping database load for temporary chat:', chatId)
+      return
+    }
+    
     if (!isSignedIn || !user?.id) {
       setError('Please sign in to load chats')
       return
@@ -152,8 +158,19 @@ export function useActiveChat(initialChatId?: string) {
     metadata?: any,
     optimistic = true
   ): Promise<boolean> => {
-    if (!activeChat || !isSignedIn || !user?.id) {
-      setError('No active chat or user not signed in')
+    if (!activeChat) {
+      setError('No active chat')
+      return false
+    }
+    
+    // Skip database operations for temporary chats
+    if (activeChat.id.startsWith('temp-')) {
+      console.log('Skipping database save for temporary chat message')
+      return true // Return success for temporary chats
+    }
+    
+    if (!isSignedIn || !user?.id) {
+      setError('User not signed in')
       return false
     }
 
@@ -250,7 +267,17 @@ export function useActiveChat(initialChatId?: string) {
 
   // Update chat title
   const updateTitle = useCallback(async (newTitle: string): Promise<boolean> => {
-    if (!activeChat || !isSignedIn || !user?.id) {
+    if (!activeChat) {
+      return false
+    }
+    
+    // For temporary chats, just update locally without API call
+    if (activeChat.id.startsWith('temp-')) {
+      setActiveChat(prev => prev ? { ...prev, title: newTitle } : null)
+      return true
+    }
+    
+    if (!isSignedIn || !user?.id) {
       return false
     }
 
@@ -315,9 +342,9 @@ export function useActiveChat(initialChatId?: string) {
     setError(null)
   }, [])
 
-  // Load initial chat if provided
+  // Load initial chat if provided (skip temporary chats)
   useEffect(() => {
-    if (initialChatId && isSignedIn && user?.id) {
+    if (initialChatId && !initialChatId.startsWith('temp-') && isSignedIn && user?.id) {
       loadChat(initialChatId)
     }
   }, [initialChatId, isSignedIn, user?.id, loadChat])
