@@ -51,7 +51,12 @@ class BackgroundMemorySaver {
       this.processQueue();
     }
 
-    console.log(`Memory task queued: ${taskId}`, { messagesCount: messages.length });
+    console.log(`Memory task queued: ${taskId}`, { 
+      messagesCount: messages.length,
+      queueLength: this.queue.length,
+      processing: this.processing,
+      metadata: metadata
+    });
     
     return taskId;
   }
@@ -97,11 +102,17 @@ class BackgroundMemorySaver {
       });
 
       if (response.ok) {
-        console.log(`Memory task completed successfully: ${task.id}`);
+        const result = await response.json();
+        console.log(`Memory task completed successfully: ${task.id}`, { 
+          result,
+          messagesCount: task.messages.length,
+          metadata: task.metadata
+        });
         this.callbacks.onSuccess?.(task.id);
         this.callbacks.onComplete?.(task.id, true);
       } else {
-        throw new Error(`Memory API error: ${response.status}`);
+        const errorText = await response.text();
+        throw new Error(`Memory API error: ${response.status} ${response.statusText} - ${errorText}`);
       }
 
     } catch (error) {

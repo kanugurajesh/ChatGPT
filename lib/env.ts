@@ -77,7 +77,11 @@ class EnvironmentValidator {
     
     switch (service) {
       case 'memory':
-        return !!config.MEM0_API_KEY;
+        const hasMemoryKey = !!config.MEM0_API_KEY;
+        if (!hasMemoryKey) {
+          console.warn('Memory service not configured: MEM0_API_KEY environment variable is missing');
+        }
+        return hasMemoryKey;
       case 'auth':
         return !!(config.CLERK_SECRET_KEY && config.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
       case 'ai':

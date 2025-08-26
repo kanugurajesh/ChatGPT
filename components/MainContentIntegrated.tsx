@@ -140,7 +140,8 @@ export function MainContent({
   const [generatingImageMessageIds, setGeneratingImageMessageIds] = useState<
     Set<string>
   >(new Set());
-  const [abortController, setAbortController] = useState<AbortController | null>(null);
+  const [abortController, setAbortController] =
+    useState<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const { isMobile, useOverlayNav } = useResponsive();
@@ -183,10 +184,10 @@ export function MainContent({
   useEffect(() => {
     if (activeChatId) {
       // Skip entire effect for temporary chats to avoid state interference
-      if (activeChatId.startsWith('temp-')) {
+      if (activeChatId.startsWith("temp-")) {
         return;
       }
-      
+
       // Always load the chat when activeChatId changes
       if (!activeChat || activeChat.id !== activeChatId) {
         // This is a persistent chat, disable temporary mode
@@ -419,8 +420,6 @@ export function MainContent({
     }
   }, [user, isSignedIn, isLoaded]);
 
-  // Removed background memory saver callbacks
-
   // Handle stopping the current request
   const handleStopGeneration = () => {
     if (abortController) {
@@ -549,11 +548,11 @@ export function MainContent({
       return null;
     } catch (error) {
       // Check if it was an abort error
-      if (error instanceof Error && error.name === 'AbortError') {
+      if (error instanceof Error && error.name === "AbortError") {
         console.log("Image generation was aborted by user");
         return null;
       }
-      
+
       console.error("💥 Critical error during image generation:", {
         error: error instanceof Error ? error.message : error,
         stack: error instanceof Error ? error.stack : undefined,
@@ -581,7 +580,7 @@ export function MainContent({
     // Create new AbortController for this request
     const controller = new AbortController();
     setAbortController(controller);
-    
+
     setIsLoading(true);
     setInputValue("");
 
@@ -599,7 +598,7 @@ export function MainContent({
             title: generateTitle(content.trim()),
             messages: [],
             createdAt: new Date(),
-            updatedAt: new Date()
+            updatedAt: new Date(),
           };
           // We'll manage this locally instead of through the hook
           // Notify parent component about temporary chat (use temp ID)
@@ -837,6 +836,27 @@ export function MainContent({
 
           backgroundSave()
             .then((mongoSaveSuccess) => {
+              // Add memory storage for authenticated users
+              if (mongoSaveSuccess && isSignedIn && user?.id) {
+                try {
+                  const memoryMessages = [
+                    { role: 'user' as const, content: content.trim() },
+                    { role: 'assistant' as const, content: assistantMessage.content }
+                  ];
+                  
+                  const memoryTaskId = backgroundMemorySaver.addMemoryTask(memoryMessages, {
+                    chatId: currentChatId,
+                    model: selectedModel,
+                    imageGenerated: !!imageResult,
+                    timestamp: new Date().toISOString()
+                  });
+                  
+                  console.log('Memory storage task queued for image generation:', memoryTaskId);
+                } catch (memoryError) {
+                  console.error('Failed to queue memory storage for image generation:', memoryError);
+                }
+              }
+              
               // Refresh chat history in sidebar (skip for temporary chats)
               if (!isTemporaryChat) {
                 fetchChatHistory();
@@ -856,7 +876,7 @@ export function MainContent({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: contextMessages,
-          userId: isTemporaryChat ? 'anonymous' : (user?.id || userId),
+          userId: isTemporaryChat ? "anonymous" : user?.id || userId,
           attachments: attachments,
           chatId: currentChatId,
           isTemporaryChat: isTemporaryChat,
@@ -903,7 +923,10 @@ export function MainContent({
           );
         } catch (streamError) {
           // Check if the stream was aborted
-          if (streamError instanceof Error && streamError.name === 'AbortError') {
+          if (
+            streamError instanceof Error &&
+            streamError.name === "AbortError"
+          ) {
             console.log("Stream reading was aborted by user");
             break;
           }
@@ -950,7 +973,25 @@ export function MainContent({
         // Start background save and handle memory storage
         backgroundSave()
           .then((mongoSaveSuccess) => {
-            // Memory storage removed
+            // Add memory storage for authenticated users
+            if (mongoSaveSuccess && isSignedIn && user?.id) {
+              try {
+                const memoryMessages = [
+                  { role: 'user' as const, content: content.trim() },
+                  { role: 'assistant' as const, content: streamingText.trim() }
+                ];
+                
+                const memoryTaskId = backgroundMemorySaver.addMemoryTask(memoryMessages, {
+                  chatId: currentChatId,
+                  model: selectedModel,
+                  timestamp: new Date().toISOString()
+                });
+                
+                console.log('Memory storage task queued:', memoryTaskId);
+              } catch (memoryError) {
+                console.error('Failed to queue memory storage:', memoryError);
+              }
+            }
 
             // Refresh chat history in sidebar (skip for temporary chats)
             if (!isTemporaryChat) {
@@ -965,32 +1006,38 @@ export function MainContent({
       console.error("Error in chat flow:", err);
 
       // Check if it was an abort error (user clicked stop)
-      if (err instanceof Error && (err.name === 'AbortError' || err.message.includes('aborted'))) {
+      if (
+        err instanceof Error &&
+        (err.name === "AbortError" || err.message.includes("aborted"))
+      ) {
         console.log("Request was aborted by user");
-        
+
         // Clean up the UI state
         setIsStreaming(false);
         setIsSavingToMongoDB(false);
-        
+
         // Add a message indicating the request was stopped
         if (messages.length > 0) {
           const lastMessage = messages[messages.length - 1];
-          if (lastMessage.role === 'assistant' && !lastMessage.content.trim()) {
+          if (lastMessage.role === "assistant" && !lastMessage.content.trim()) {
             // Remove the empty assistant message
-            setLocalMessages(prev => prev.slice(0, -1));
+            setLocalMessages((prev) => prev.slice(0, -1));
           }
         }
-      } else if (err instanceof TypeError && err.message.includes('Failed to fetch')) {
+      } else if (
+        err instanceof TypeError &&
+        err.message.includes("Failed to fetch")
+      ) {
         // Network error (could be due to abort)
         console.log("Network request failed (possibly aborted)");
         setIsStreaming(false);
         setIsSavingToMongoDB(false);
-        
+
         // Clean up empty assistant messages
         if (messages.length > 0) {
           const lastMessage = messages[messages.length - 1];
-          if (lastMessage.role === 'assistant' && !lastMessage.content.trim()) {
-            setLocalMessages(prev => prev.slice(0, -1));
+          if (lastMessage.role === "assistant" && !lastMessage.content.trim()) {
+            setLocalMessages((prev) => prev.slice(0, -1));
           }
         }
       } else {
@@ -1132,26 +1179,26 @@ export function MainContent({
           setIsSavingToMongoDB(true);
           try {
             await addMessage(
-            "assistant",
-            newAssistantMessage.content,
-            {
-              model: selectedModel,
-              tokens: newAssistantMessage.content.length,
-              imageGenerated: !!imageResult,
-              regenerated: true,
-              generatedImage: imageResult
-                ? {
-                    url: imageResult.url,
-                    publicId: imageResult.publicId,
-                    imageId: imageResult.imageId,
-                    messageId: newAssistantId, // Link image to message
-                    prompt: userMessage.content,
-                    generatedAt: new Date().toISOString(),
-                  }
-                : undefined,
-            },
-            false
-          );
+              "assistant",
+              newAssistantMessage.content,
+              {
+                model: selectedModel,
+                tokens: newAssistantMessage.content.length,
+                imageGenerated: !!imageResult,
+                regenerated: true,
+                generatedImage: imageResult
+                  ? {
+                      url: imageResult.url,
+                      publicId: imageResult.publicId,
+                      imageId: imageResult.imageId,
+                      messageId: newAssistantId, // Link image to message
+                      prompt: userMessage.content,
+                      generatedAt: new Date().toISOString(),
+                    }
+                  : undefined,
+              },
+              false
+            );
           } catch (error) {
             console.error(
               "Failed to save regenerated image response to MongoDB:",
@@ -1179,7 +1226,7 @@ export function MainContent({
           },
           body: JSON.stringify({
             messages: historyForAPI,
-            userId: isTemporaryChat ? 'anonymous' : userId,
+            userId: isTemporaryChat ? "anonymous" : userId,
             chatId: activeChatId,
             attachments: userMessage.attachments,
             isTemporaryChat: isTemporaryChat,
@@ -1218,18 +1265,18 @@ export function MainContent({
         if (!isTemporaryChat) {
           setIsSavingToMongoDB(true);
           try {
-          await addMessage(
-            "assistant",
-            fullContent,
-            {
-              model: selectedModel,
-              tokens: fullContent.length,
-              regenerated: true,
-            },
-            false
-          );
+            await addMessage(
+              "assistant",
+              fullContent,
+              {
+                model: selectedModel,
+                tokens: fullContent.length,
+                regenerated: true,
+              },
+              false
+            );
 
-          // Background memory saving removed
+            // Background memory saving removed
           } catch (error) {
             console.error(
               "Failed to save regenerated response to MongoDB:",
@@ -1347,7 +1394,7 @@ export function MainContent({
       ) : (
         <div
           className={cn(
-            "flex flex-col h-screen relative",
+            "flex flex-col h-screen relative"
             // !activeChat && messages.length === 0 && "gap-y-5"
           )}
         >
@@ -1369,9 +1416,7 @@ export function MainContent({
                 )}
 
                 {/* Upgrade Button - Center Left */}
-                <div
-                  className={cn("flex-1 flex justify-center")}
-                >
+                <div className={cn("flex-1 flex justify-center")}>
                   <Button className="bg-[#6366f1] hover:bg-[#414071] text-white px-4 py-2 rounded-full text-sm font-medium">
                     <div className="w-4 h-4 mr-2 flex items-center justify-center">
                       <svg
@@ -1477,7 +1522,7 @@ export function MainContent({
                         />
                         <div className="flex items-center mr-3 space-x-2">
                           <Button
-                            className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
+                            className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg cursor-pointer"
                             size="icon"
                           >
                             <Mic className="w-5 h-5" />
@@ -1500,11 +1545,20 @@ export function MainContent({
                                 "w-8 h-8 rounded-full transition-all",
                                 inputValue.trim() && !isLoading
                                   ? "bg-white text-black hover:bg-gray-200"
-                                  : "bg-gray-600 text-gray-500 cursor-not-allowed"
+                                  : "bg-gray-600 text-gray-500"
                               )}
                               aria-label="Send message"
                             >
-                              <ArrowUp className="w-4 h-4" />
+                              <svg
+                                width="20"
+                                height="20"
+                                viewBox="0 0 20 20"
+                                fill="white"
+                                xmlns="http://www.w3.org/2000/svg"
+                                color="white"
+                              >
+                                <path d="M7.167 15.416V4.583a.75.75 0 0 1 1.5 0v10.833a.75.75 0 0 1-1.5 0Zm4.166-2.5V7.083a.75.75 0 0 1 1.5 0v5.833a.75.75 0 0 1-1.5 0ZM3 11.25V8.75a.75.75 0 0 1 1.5 0v2.5a.75.75 0 0 1-1.5 0Zm12.5 0V8.75a.75.75 0 0 1 1.5 0v2.5a.75.75 0 0 1-1.5 0Z"></path>
+                              </svg>
                             </Button>
                           )}
                         </div>
@@ -1514,11 +1568,9 @@ export function MainContent({
                     {/* Status indicator */}
                     <div className="text-center mt-3 text-xs text-gray-500">
                       {isTemporaryChat ? (
-                        <div className="flex items-center justify-center gap-2">
-                        </div>
+                        <div className="flex items-center justify-center gap-2"></div>
                       ) : isSignedIn ? (
-                        <div className="flex items-center justify-center gap-2">
-                        </div>
+                        <div className="flex items-center justify-center gap-2"></div>
                       ) : (
                         <div className="flex flex-col items-center gap-2">
                           <span>
@@ -1984,11 +2036,9 @@ export function MainContent({
                   {/* Status indicator */}
                   <div className="text-center mt-3 text-xs text-gray-500">
                     {isTemporaryChat ? (
-                      <div className="flex items-center justify-center gap-2">
-                      </div>
+                      <div className="flex items-center justify-center gap-2"></div>
                     ) : isSignedIn ? (
-                      <div className="flex items-center justify-center gap-2">
-                      </div>
+                      <div className="flex items-center justify-center gap-2"></div>
                     ) : (
                       <span>⚠️ Sign in to save your chat history</span>
                     )}

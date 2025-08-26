@@ -49,16 +49,38 @@ export class MemoryService {
 
   static async addMemory(messages: MemoryMessage[], options: MemoryAddOptions): Promise<any | null> {
     if (!this.isConfigured()) {
-      console.warn('Memory service not configured, skipping memory add');
+      console.warn('Memory service not configured, skipping memory add', { 
+        hasApiKey: !!env.getConfig().MEM0_API_KEY,
+        userId: options.user_id 
+      });
       return null;
     }
     
     try {
       this.checkMemoryClient();
+      console.log('Adding memory to Mem0 service:', { 
+        messagesCount: messages.length,
+        userId: options.user_id,
+        metadata: options.metadata
+      });
+      
       const result = await memoryClient!.add(messages, options);
+      
+      console.log('Memory added successfully:', { 
+        result,
+        messagesCount: messages.length,
+        userId: options.user_id
+      });
+      
       return result;
     } catch (error) {
-      console.error('Error adding memory:', error);
+      console.error('Error adding memory:', {
+        error: error instanceof Error ? error.message : error,
+        stack: error instanceof Error ? error.stack : undefined,
+        messagesCount: messages.length,
+        userId: options.user_id,
+        metadata: options.metadata
+      });
       throw error;
     }
   }
