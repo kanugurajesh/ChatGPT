@@ -10,6 +10,16 @@ import {
   DropdownMenuTrigger,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog"
 import { SidebarToggle } from "./SidebarToggle"
 import { SearchDialog } from "./SearchDialog"
 import { ManageMemory } from "./ManageMemory"
@@ -35,6 +45,8 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
   const [isMemoryOpen, setIsMemoryOpen] = useState(false)
   const [editingChatId, setEditingChatId] = useState<string | null>(null)
   const [editTitle, setEditTitle] = useState('')
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [chatToDelete, setChatToDelete] = useState<{id: string, title: string} | null>(null)
   const { isMobile, useOverlayNav } = useResponsive()
   const { user, isSignedIn, isLoaded } = useUser()
   const { chatHistory, isLoading: chatHistoryLoading, error: chatHistoryError, deleteChat, updateChatTitle } = useChatHistory()
@@ -74,13 +86,28 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
   }
 
   const handleDeleteChat = async (chatId: string) => {
-    if (window.confirm('Are you sure you want to delete this chat?')) {
-      await deleteChat(chatId)
+    const chat = chatHistory.find(c => c.id === chatId)
+    if (chat) {
+      setChatToDelete({ id: chatId, title: chat.title })
+      setDeleteDialogOpen(true)
+    }
+  }
+
+  const confirmDeleteChat = async () => {
+    if (chatToDelete) {
+      await deleteChat(chatToDelete.id)
       // If the deleted chat was active, we might want to navigate away
-      if (activeChatId === chatId) {
+      if (activeChatId === chatToDelete.id) {
         onNewChat() // Start a new chat
       }
     }
+    setDeleteDialogOpen(false)
+    setChatToDelete(null)
+  }
+
+  const cancelDeleteChat = () => {
+    setDeleteDialogOpen(false)
+    setChatToDelete(null)
   }
 
   // Keyboard shortcuts
@@ -464,6 +491,41 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
           userId={user.id} 
         />
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent className="bg-[#2f2f2f] border-gray-600 text-white max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-white text-lg font-medium">
+              Delete chat?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-gray-300 text-sm">
+              {chatToDelete && (
+                <>
+                  This will delete <span className="font-medium">{chatToDelete.title}</span>.
+                  <br />
+                  <br />
+                  Visit settings to delete any memories saved during this chat.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex justify-end gap-3 mt-4">
+            <AlertDialogCancel 
+              onClick={cancelDeleteChat}
+              className="bg-transparent border-gray-600 text-white hover:bg-[#404040] hover:text-white focus:ring-0 focus:ring-offset-0"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={confirmDeleteChat}
+              className="bg-red-600 hover:bg-red-700 text-white border-0 focus:ring-0 focus:ring-offset-0"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }
