@@ -1677,7 +1677,10 @@ export function MainContent({
                         <div className="flex flex-col items-end mb-6 group">
                           <div className="bg-[#2f2f2f] text-white rounded-3xl px-5 py-3 max-w-[80%] text-base relative">
                             {editingMessageId === message.id ? (
-                              <div className="relative bg-[#2A2A2A] rounded-3xl border border-gray-700 p-0 min-w-[500px]">
+                              <div className={cn(
+                                "relative bg-[#2A2A2A] rounded-3xl border border-gray-700 p-0",
+                                isMobile ? "w-[95%]" : "w-full max-w-4xl"
+                              )}>
                                 <Textarea
                                   value={editContent}
                                   onChange={(e) =>
