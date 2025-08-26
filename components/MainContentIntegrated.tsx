@@ -1752,22 +1752,22 @@ export function MainContent({
                       {message.role === "user" ? (
                         // User message - right aligned pill
                         <div className="flex flex-col items-end mb-6 group">
-                          <div className="bg-[#2f2f2f] text-white rounded-3xl px-5 py-3 max-w-[80%] text-base relative">
+                          <div className={cn("bg-[#2f2f2f] text-white rounded-3xl p-3 text-base relative", editingMessageId == message.id && "w-full")}>
                             {editingMessageId === message.id ? (
-                              <div className="bg-[#565856] rounded-2xl p-4 w-full max-w-[520px]">
+                              <div className="rounded-2xl p-2 w-full ">
                                 <Textarea
                                   value={editContent}
                                   onChange={(e) =>
                                     setEditContent(e.target.value)
                                   }
-                                  className="w-full bg-transparent border-none text-white placeholder-gray-400 resize-none min-h-[24px] max-h-[200px] focus:ring-0 focus:outline-none text-base p-0 mb-4"
+                                  className="w-full bg-transparent border-none text-white placeholder-gray-400 resize-none min-h-[30px] max-h-[200px] focus:ring-0 focus:outline-none text-base p-1 mb-4"
                                   autoFocus
                                   placeholder="Edit your message..."
                                 />
                                 <div className="flex justify-end space-x-2">
                                   <Button
                                     onClick={handleCancelEdit}
-                                    className="bg-[#424342] hover:bg-[#4a4b4a] text-white border-none rounded-full px-4 py-2 h-8 text-sm font-medium"
+                                    className="bg-black hover:bg-[#4a4b4a] text-white border-none rounded-full px-4 py-2 h-8 text-sm font-medium"
                                   >
                                     Cancel
                                   </Button>
