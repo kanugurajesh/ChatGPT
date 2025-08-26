@@ -29,7 +29,7 @@ export function ChatHeader({
   onModelChange 
 }: ChatHeaderProps) {
   return (
-    <div className="flex w-full justify-between items-center p-4 bg-[#212121]">
+    <div className="flex w-full justify-between items-center py-4 px-4 bg-[#212121]">
       {/* Model Selector */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

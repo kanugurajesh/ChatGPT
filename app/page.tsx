@@ -93,7 +93,7 @@ export default function ChatGPTClone() {
       </ErrorBoundary>
 
       {/* Main content area takes remaining space */}
-      <div className="flex w-full justify-center">
+      <div className="w-screen justify-center">
         {showGalleryView ? (
           <ImageGallery
             onClose={closeGalleryView}

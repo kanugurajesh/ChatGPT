@@ -26,7 +26,6 @@ import { ManageMemory } from "./ManageMemory"
 import { useResponsive } from "@/hooks/use-responsive"
 import { useChatHistory } from "@/hooks/use-chat-history"
 import { cn } from "@/lib/utils"
-// import Image from "next/image"
 import { useUser, SignInButton, UserButton } from "@clerk/nextjs"
 
 interface LeftNavigationProps {
@@ -38,7 +37,6 @@ interface LeftNavigationProps {
   onChatSelect?: (chatId: string) => void
   activeChatId?: string
 }
-
 
 export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, onNewChat, onChatSelect, activeChatId }: LeftNavigationProps) {
   const [isSearchOpen, setIsSearchOpen] = useState(false)

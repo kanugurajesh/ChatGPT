@@ -12,7 +12,6 @@ import {
   ThumbsUp,
   ThumbsDown,
   Share,
-  MoreHorizontal,
   Download,
   FileText,
   Menu,
@@ -118,7 +117,6 @@ export function MainContent({
   currentImage,
   onCloseImageView,
   onSetImage,
-  onNewChat,
   activeChatId,
   onChatCreated,
   onToggle,
@@ -1143,12 +1141,11 @@ export function MainContent({
         </div>
       ) : (
         <div className={cn(
-          "flex flex-col h-full relative",
-          useOverlayNav ? "w-full" : "w-[800px]"
+          "flex flex-col h-full relative"
         )}>
           {/* Mobile Header with Full Width Layout */}
           {isMobile && (
-            <div className="flex items-center justify-between py-3 px-4 bg-[#2f2f2f] w-full -mx-4">
+            <div className="flex items-center justify-between py-3 px-4 bg-[#2f2f2f] w-full">
               {/* Hamburger Menu - Far Left */}
               {!isNavExpanded && onToggle && (
                 <Button
@@ -1188,7 +1185,7 @@ export function MainContent({
           
           {/* Chat Header - Medium and Desktop screens */}
           {!isMobile && (
-            <div className="flex">
+            <div className="">
               <ChatHeader
                 isTemporaryChat={isTemporaryChat}
                 onTemporaryChatToggle={handleTemporaryChatToggle}
