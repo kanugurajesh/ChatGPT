@@ -130,10 +130,7 @@ export function MainContent({
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
   const [userId, setUserId] = useState<string>("default_user");
-  const [isStoringMemory, setIsStoringMemory] = useState(false);
-  const [backgroundMemoryTasks, setBackgroundMemoryTasks] = useState<string[]>(
-    []
-  );
+  // Removed memory tracking states
   const [isSavingToMongoDB, setIsSavingToMongoDB] = useState(false);
   const [isFileDialogOpen, setIsFileDialogOpen] = useState(false);
   const [generatedImages, setGeneratedImages] = useState<{
@@ -404,8 +401,6 @@ export function MainContent({
       setLocalMessages([]);
       setShouldLoadFromDB(true);
       setIsSavingToMongoDB(false);
-      setIsStoringMemory(false);
-      setBackgroundMemoryTasks([]);
       setGeneratedImages({});
       setIsGeneratingImage(false);
       setGeneratingImageMessageIds(new Set());
@@ -424,31 +419,7 @@ export function MainContent({
     }
   }, [user, isSignedIn, isLoaded]);
 
-  // Setup background memory saver callbacks
-  useEffect(() => {
-    backgroundMemorySaver.setCallbacks({
-      onStart: (taskId) => {
-        setBackgroundMemoryTasks((prev) => [...prev, taskId]);
-        setIsStoringMemory(true);
-      },
-      onSuccess: (taskId) => {
-        console.log(`Background memory save completed: ${taskId}`);
-      },
-      onError: (taskId, error) => {
-        console.error(`Background memory save failed: ${taskId}`, error);
-      },
-      onComplete: (taskId, success) => {
-        setBackgroundMemoryTasks((prev) => prev.filter((id) => id !== taskId));
-        // Only set to false if no more tasks are running
-        setIsStoringMemory((prev) => {
-          const remainingTasks = backgroundMemoryTasks.filter(
-            (id) => id !== taskId
-          );
-          return remainingTasks.length > 0;
-        });
-      },
-    });
-  }, [backgroundMemoryTasks]);
+  // Removed background memory saver callbacks
 
   // Handle stopping the current request
   const handleStopGeneration = () => {
@@ -979,22 +950,7 @@ export function MainContent({
         // Start background save and handle memory storage
         backgroundSave()
           .then((mongoSaveSuccess) => {
-            // Only save to memory if MongoDB save was successful and not temporary chat
-            if (isSignedIn && user?.id && mongoSaveSuccess && !isTemporaryChat) {
-              const conversationToStore = [
-                { role: "user" as const, content: content.trim() },
-                { role: "assistant" as const, content: streamingText.trim() },
-              ];
-
-              console.log("Queuing conversation for background memory storage");
-
-              // Add to background memory queue
-              backgroundMemorySaver.addMemoryTask(conversationToStore, {
-                timestamp: new Date().toISOString(),
-                model: selectedModel,
-                tokens: streamingText.length,
-              });
-            }
+            // Memory storage removed
 
             // Refresh chat history in sidebar (skip for temporary chats)
             if (!isTemporaryChat) {
@@ -1273,28 +1229,7 @@ export function MainContent({
             false
           );
 
-          // Start background memory saving for authenticated users (skip for temporary chats)
-          if (isSignedIn && fullContent.trim() && !isTemporaryChat) {
-            const memoryMessages = [
-              { role: "user" as const, content: userMessage.content },
-              { role: "assistant" as const, content: fullContent },
-            ];
-
-            backgroundMemorySaver.addMemoryTask(memoryMessages, { userId });
-            setIsStoringMemory(true);
-
-            const taskId = Date.now().toString();
-            setBackgroundMemoryTasks((prev) => [...prev, taskId]);
-
-            setTimeout(() => {
-              setBackgroundMemoryTasks((prev) =>
-                prev.filter((id) => id !== taskId)
-              );
-              if (backgroundMemoryTasks.length <= 1) {
-                setIsStoringMemory(false);
-              }
-            }, 3000);
-          }
+          // Background memory saving removed
           } catch (error) {
             console.error(
               "Failed to save regenerated response to MongoDB:",
@@ -1352,8 +1287,6 @@ export function MainContent({
     setLocalMessages([]);
     setShouldLoadFromDB(true);
     setIsSavingToMongoDB(false);
-    setIsStoringMemory(false);
-    setBackgroundMemoryTasks([]);
     setGeneratedImages({});
     setIsGeneratingImage(false);
     setGeneratingImageMessageIds(new Set());
@@ -1415,7 +1348,7 @@ export function MainContent({
         <div
           className={cn(
             "flex flex-col h-screen relative",
-            !activeChat && messages.length === 0 && "gap-y-44"
+            !activeChat && messages.length === 0 && "gap-y-28"
           )}
         >
           {/* Mobile Header with Full Width Layout */}
@@ -1582,16 +1515,9 @@ export function MainContent({
                     <div className="text-center mt-3 text-xs text-gray-500">
                       {isTemporaryChat ? (
                         <div className="flex items-center justify-center gap-2">
-                          <span className="text-orange-400">🔒 Temporary Chat Mode</span>
-                          <span>• Not saved to history or memory</span>
                         </div>
                       ) : isSignedIn ? (
                         <div className="flex items-center justify-center gap-2">
-                          <span>
-                            ✓ Signed in as {user?.firstName || "User"}
-                          </span>
-                          {isSavingToMongoDB && <span>• Saving chat...</span>}
-                          {isStoringMemory && <span>• Saving memory...</span>}
                         </div>
                       ) : (
                         <div className="flex flex-col items-center gap-2">
@@ -2059,14 +1985,9 @@ export function MainContent({
                   <div className="text-center mt-3 text-xs text-gray-500">
                     {isTemporaryChat ? (
                       <div className="flex items-center justify-center gap-2">
-                        <span className="text-orange-400">🔒 Temporary Chat Mode</span>
-                        <span>• Not saved to history or memory</span>
                       </div>
                     ) : isSignedIn ? (
                       <div className="flex items-center justify-center gap-2">
-                        <span>✓ Signed in as {user?.firstName || "User"}</span>
-                        {isSavingToMongoDB && <span>• Saving chat...</span>}
-                        {isStoringMemory && <span>• Saving memory...</span>}
                       </div>
                     ) : (
                       <span>⚠️ Sign in to save your chat history</span>
