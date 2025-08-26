@@ -147,6 +147,9 @@ export function MainContent({
   >(new Set());
   const [abortController, setAbortController] =
     useState<AbortController | null>(null);
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const [likedMessages, setLikedMessages] = useState<Set<string>>(new Set());
+  const [dislikedMessages, setDislikedMessages] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const { isMobile, useOverlayNav } = useResponsive();
@@ -1336,12 +1339,51 @@ export function MainContent({
     textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
   };
 
-  const copyToClipboard = async (text: string) => {
+  const copyToClipboard = async (text: string, messageId: string) => {
     try {
       await navigator.clipboard.writeText(text);
+      setCopiedMessageId(messageId);
+      // Clear the feedback after 2 seconds
+      setTimeout(() => setCopiedMessageId(null), 2000);
     } catch (err) {
       console.error("Failed to copy text: ", err);
     }
+  };
+
+  const handleLikeMessage = (messageId: string) => {
+    setLikedMessages(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(messageId)) {
+        newSet.delete(messageId);
+      } else {
+        newSet.add(messageId);
+        // Remove from disliked if it was disliked
+        setDislikedMessages(prevDisliked => {
+          const newDislikedSet = new Set(prevDisliked);
+          newDislikedSet.delete(messageId);
+          return newDislikedSet;
+        });
+      }
+      return newSet;
+    });
+  };
+
+  const handleDislikeMessage = (messageId: string) => {
+    setDislikedMessages(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(messageId)) {
+        newSet.delete(messageId);
+      } else {
+        newSet.add(messageId);
+        // Remove from liked if it was liked
+        setLikedMessages(prevLiked => {
+          const newLikedSet = new Set(prevLiked);
+          newLikedSet.delete(messageId);
+          return newLikedSet;
+        });
+      }
+      return newSet;
+    });
   };
 
   const resetChat = () => {
@@ -1358,6 +1400,9 @@ export function MainContent({
     setIsGeneratingImage(false);
     setGeneratingImageMessageIds(new Set());
     setAbortController(null);
+    setCopiedMessageId(null);
+    setLikedMessages(new Set());
+    setDislikedMessages(new Set());
   };
 
   const handleTemporaryChatToggle = (enabled: boolean) => {
@@ -1709,42 +1754,26 @@ export function MainContent({
                         <div className="flex flex-col items-end mb-6 group">
                           <div className="bg-[#2f2f2f] text-white rounded-3xl px-5 py-3 max-w-[80%] text-base relative">
                             {editingMessageId === message.id ? (
-                              <div
-                                className={cn(
-                                  "bg-[#2A2A2A] rounded-3xl border border-gray-700 p-0",
-                                  isMobile ? "w-[95%]" : "w-full max-w-4xl"
-                                )}
-                              >
+                              <div className="bg-[#565856] rounded-2xl p-4 w-full max-w-[520px]">
                                 <Textarea
                                   value={editContent}
                                   onChange={(e) =>
                                     setEditContent(e.target.value)
                                   }
-                                  className={cn(
-                                    "w-full bg-transparent border-none text-white placeholder-gray-400 resize-none min-h-[60px] max-h-[200px] focus:ring-0 focus:outline-none text-base p-4",
-                                    isMobile ? "pb-16" : "pr-24"
-                                  )}
+                                  className="w-full bg-transparent border-none text-white placeholder-gray-400 resize-none min-h-[24px] max-h-[200px] focus:ring-0 focus:outline-none text-base p-0 mb-4"
                                   autoFocus
                                   placeholder="Edit your message..."
                                 />
-                                <div className={cn(
-                                  "flex space-x-2 p-3",
-                                  isMobile 
-                                    ? "justify-end border-t border-gray-600" 
-                                    : "absolute bottom-3 right-3"
-                                )}>
+                                <div className="flex justify-end space-x-2">
                                   <Button
                                     onClick={handleCancelEdit}
-                                    variant="outline"
-                                    size="sm"
-                                    className="text-gray-400 border-gray-600 hover:bg-gray-700 hover:text-white bg-gray-800 rounded-lg"
+                                    className="bg-[#424342] hover:bg-[#4a4b4a] text-white border-none rounded-full px-4 py-2 h-8 text-sm font-medium"
                                   >
                                     Cancel
                                   </Button>
                                   <Button
                                     onClick={() => handleSaveEdit(message.id)}
-                                    size="sm"
-                                    className="bg-white text-black hover:bg-gray-200 rounded-lg"
+                                    className="bg-white hover:bg-gray-100 text-black border-none rounded-full px-4 py-2 h-8 text-sm font-medium"
                                   >
                                     Send
                                   </Button>
@@ -1824,11 +1853,15 @@ export function MainContent({
                           {/* Copy and Edit buttons for user messages - only visible on hover */}
                           <div className="flex items-center mt-2 mr-2 space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
                             <Button
-                              onClick={() => copyToClipboard(message.content)}
+                              onClick={() => copyToClipboard(message.content, message.id)}
                               className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
                               size="icon"
                             >
-                              <Copy className="w-4 h-4" />
+                              {copiedMessageId === message.id ? (
+                                <span className="text-green-400 text-xs font-medium">✓</span>
+                              ) : (
+                                <Copy className="w-4 h-4" />
+                              )}
                             </Button>
                             <Button
                               onClick={() =>
@@ -2025,24 +2058,46 @@ export function MainContent({
                               <div className="flex items-center space-x-2 ml-0">
                                 <Button
                                   onClick={() =>
-                                    copyToClipboard(message.content)
+                                    copyToClipboard(message.content, message.id)
                                   }
-                                  className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
+                                  className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg transition-all duration-200"
                                   size="icon"
                                 >
-                                  <Copy className="w-4 h-4" />
+                                  {copiedMessageId === message.id ? (
+                                    <span className="text-green-400 text-xs font-medium animate-pulse">✓</span>
+                                  ) : (
+                                    <Copy className="w-4 h-4" />
+                                  )}
                                 </Button>
                                 <Button
-                                  className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
+                                  onClick={() => handleLikeMessage(message.id)}
+                                  className={cn(
+                                    "h-8 w-8 p-0 bg-transparent hover:bg-gray-700 rounded-lg transition-all duration-200 transform hover:scale-110",
+                                    likedMessages.has(message.id) 
+                                      ? "text-blue-400 hover:text-blue-300" 
+                                      : "text-gray-400 hover:text-white"
+                                  )}
                                   size="icon"
                                 >
-                                  <ThumbsUp className="w-4 h-4" />
+                                  <ThumbsUp className={cn(
+                                    "w-4 h-4 transition-all duration-200",
+                                    likedMessages.has(message.id) && "animate-bounce"
+                                  )} />
                                 </Button>
                                 <Button
-                                  className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
+                                  onClick={() => handleDislikeMessage(message.id)}
+                                  className={cn(
+                                    "h-8 w-8 p-0 bg-transparent hover:bg-gray-700 rounded-lg transition-all duration-200 transform hover:scale-110",
+                                    dislikedMessages.has(message.id) 
+                                      ? "text-red-400 hover:text-red-300" 
+                                      : "text-gray-400 hover:text-white"
+                                  )}
                                   size="icon"
                                 >
-                                  <ThumbsDown className="w-4 h-4" />
+                                  <ThumbsDown className={cn(
+                                    "w-4 h-4 transition-all duration-200",
+                                    dislikedMessages.has(message.id) && "animate-bounce"
+                                  )} />
                                 </Button>
                                 <Button
                                   onClick={() =>
