@@ -233,7 +233,6 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
               {isExpanded && <span className="ml-3 transition-opacity duration-300 ease-out">Search chats</span>}
             </Button>
 
-
             <Button 
               variant="ghost"
               onClick={onImageClick}
@@ -245,7 +244,6 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
               <NextImage className="h-4 w-4 shrink-0" />
               {isExpanded && <span className="ml-3 transition-opacity duration-300 ease-out">Gallery</span>}
             </Button>
-
 
             <Button 
               variant="ghost"

@@ -1301,7 +1301,7 @@ export function MainContent({
           )}
         </div>
       ) : (
-        <div className={cn("flex flex-col h-full relative")}>
+        <div className={cn("flex flex-col h-full relative gap-y-44")}>
           {/* Mobile Header with Full Width Layout */}
           {isMobile && (
             <div className="flex items-center justify-between py-3 px-4 bg-[#2f2f2f] w-full">
@@ -1321,7 +1321,7 @@ export function MainContent({
 
                 {/* Upgrade Button - Center Left */}
                 <div className="flex-1 flex justify-center">
-                  <Button className="bg-[#6366f1] hover:bg-[#5855eb] text-white px-4 py-2 rounded-full text-sm font-medium">
+                  <Button className="bg-[#6366f1] hover:bg-[#414071] text-white px-4 py-2 rounded-full text-sm font-medium">
                     <div className="w-4 h-4 mr-2 flex items-center justify-center">
                       <svg
                         viewBox="0 0 24 24"
