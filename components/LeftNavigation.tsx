@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Edit, Search, User, X, ChevronDown, Image as NextImage, Brain, MoreHorizontal, Share, Archive, Trash2, Pencil } from "lucide-react"
+import { Edit, Search, User, X, ChevronDown, Image as NextImage, Brain, MoreHorizontal, Share, Archive, Trash2, Pencil, PanelLeft } from "lucide-react"
 import Image from "next/image"
 import {
   DropdownMenu,
@@ -185,8 +185,6 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
                       className="rounded-sm"
                     />
                   </div>
-                  <span className="text-white font-medium text-lg">ChatGPT</span>
-                  {!isMobile && <ChevronDown className="h-4 w-4 text-gray-400" />}
                 </div>
                 <Button 
                   variant="ghost" 
@@ -194,7 +192,7 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
                   onClick={onClose}
                   className="text-gray-400 hover:text-white hover:bg-[#2f2f2f] w-6 h-6"
                 >
-                  <X className="h-4 w-4" />
+                  <PanelLeft className="h-4 w-4" />
                 </Button>
               </>
             ) : (
