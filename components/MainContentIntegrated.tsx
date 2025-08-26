@@ -16,6 +16,7 @@ import {
   FileText,
   Menu,
   Settings,
+  Square,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ChatHeader } from "./ChatHeader";
@@ -142,6 +143,7 @@ export function MainContent({
   const [generatingImageMessageIds, setGeneratingImageMessageIds] = useState<
     Set<string>
   >(new Set());
+  const [abortController, setAbortController] = useState<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const { isMobile, useOverlayNav } = useResponsive();
@@ -440,6 +442,18 @@ export function MainContent({
     });
   }, [backgroundMemoryTasks]);
 
+  // Handle stopping the current request
+  const handleStopGeneration = () => {
+    if (abortController) {
+      abortController.abort();
+      setAbortController(null);
+      setIsLoading(false);
+      setIsStreaming(false);
+      setIsGeneratingImage(false);
+      setGeneratingImageMessageIds(new Set());
+    }
+  };
+
   // Handle file uploads
   const handleFilesSelected = async (
     attachments: FileAttachment[],
@@ -515,6 +529,7 @@ export function MainContent({
           chatId: chatId, // Use the passed chatId parameter
           messageId: messageId,
         }),
+        signal: abortController?.signal,
       });
 
       const result = await response.json();
@@ -553,6 +568,12 @@ export function MainContent({
       });
       return null;
     } catch (error) {
+      // Check if it was an abort error
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log("Image generation was aborted by user");
+        return null;
+      }
+      
       console.error("💥 Critical error during image generation:", {
         error: error instanceof Error ? error.message : error,
         stack: error instanceof Error ? error.stack : undefined,
@@ -577,6 +598,10 @@ export function MainContent({
       return;
     }
 
+    // Create new AbortController for this request
+    const controller = new AbortController();
+    setAbortController(controller);
+    
     setIsLoading(true);
     setInputValue("");
 
@@ -839,6 +864,7 @@ export function MainContent({
           attachments: attachments,
           chatId: currentChatId,
         }),
+        signal: controller.signal,
       });
 
       if (!response.body) throw new Error("No response body");
@@ -866,17 +892,26 @@ export function MainContent({
 
       // Stream the response with real-time updates
       while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        const chunk = new TextDecoder().decode(value);
-        streamingText += chunk;
+        try {
+          const { value, done } = await reader.read();
+          if (done) break;
+          const chunk = new TextDecoder().decode(value);
+          streamingText += chunk;
 
-        // Update the assistant message content in real-time
-        setLocalMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantId ? { ...msg, content: streamingText } : msg
-          )
-        );
+          // Update the assistant message content in real-time
+          setLocalMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantId ? { ...msg, content: streamingText } : msg
+            )
+          );
+        } catch (streamError) {
+          // Check if the stream was aborted
+          if (streamError instanceof Error && streamError.name === 'AbortError') {
+            console.log("Stream reading was aborted by user");
+            break;
+          }
+          throw streamError;
+        }
       }
 
       // End streaming mode immediately - local state is now the source of truth
@@ -945,21 +980,57 @@ export function MainContent({
     } catch (err) {
       console.error("Error in chat flow:", err);
 
-      // End streaming mode and reset states
-      setIsStreaming(false);
-      setIsSavingToMongoDB(false);
+      // Check if it was an abort error (user clicked stop)
+      if (err instanceof Error && (err.name === 'AbortError' || err.message.includes('aborted'))) {
+        console.log("Request was aborted by user");
+        
+        // Clean up the UI state
+        setIsStreaming(false);
+        setIsSavingToMongoDB(false);
+        
+        // Add a message indicating the request was stopped
+        if (messages.length > 0) {
+          const lastMessage = messages[messages.length - 1];
+          if (lastMessage.role === 'assistant' && !lastMessage.content.trim()) {
+            // Remove the empty assistant message
+            setLocalMessages(prev => prev.slice(0, -1));
+          }
+        }
+      } else if (err instanceof TypeError && err.message.includes('Failed to fetch')) {
+        // Network error (could be due to abort)
+        console.log("Network request failed (possibly aborted)");
+        setIsStreaming(false);
+        setIsSavingToMongoDB(false);
+        
+        // Clean up empty assistant messages
+        if (messages.length > 0) {
+          const lastMessage = messages[messages.length - 1];
+          if (lastMessage.role === 'assistant' && !lastMessage.content.trim()) {
+            setLocalMessages(prev => prev.slice(0, -1));
+          }
+        }
+      } else {
+        // End streaming mode and reset states
+        setIsStreaming(false);
+        setIsSavingToMongoDB(false);
 
-      // Add error message to chat if we have an active chat
-      if (activeChatId) {
-        await addMessage(
-          "assistant",
-          "Sorry, I encountered an error. Please try again.",
-          { error: true },
-          false
-        );
+        // Add error message to chat if we have an active chat
+        if (activeChatId) {
+          try {
+            await addMessage(
+              "assistant",
+              "Sorry, I encountered an error. Please try again.",
+              { error: true },
+              false
+            );
+          } catch (dbError) {
+            console.error("Failed to save error message to DB:", dbError);
+          }
+        }
       }
     } finally {
       setIsLoading(false);
+      setAbortController(null);
     }
   };
 
@@ -1251,6 +1322,7 @@ export function MainContent({
     setGeneratedImages({});
     setIsGeneratingImage(false);
     setGeneratingImageMessageIds(new Set());
+    setAbortController(null);
   };
 
   const handleTemporaryChatToggle = (enabled: boolean) => {
@@ -1303,7 +1375,7 @@ export function MainContent({
       ) : (
         <div
           className={cn(
-            "flex flex-col h-full relative",
+            "flex flex-col h-screen relative",
             !activeChat && "gap-y-44"
           )}
         >
@@ -1369,7 +1441,7 @@ export function MainContent({
           )}
 
           {/* Chat area */}
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto min-h-0">
             {messages.length === 0 ? (
               // Empty state
               <div
@@ -1438,20 +1510,31 @@ export function MainContent({
                           >
                             <Mic className="w-5 h-5" />
                           </Button>
-                          <Button
-                            onClick={() => handleSendMessage()}
-                            disabled={!inputValue.trim() || isLoading}
-                            size="icon"
-                            className={cn(
-                              "w-8 h-8 rounded-full transition-all",
-                              inputValue.trim() && !isLoading
-                                ? "bg-white text-black hover:bg-gray-200"
-                                : "bg-gray-600 text-gray-500 cursor-not-allowed"
-                            )}
-                            aria-label="Send message"
-                          >
-                            <ArrowUp className="w-4 h-4" />
-                          </Button>
+                          {isLoading || isStreaming ? (
+                            <Button
+                              onClick={handleStopGeneration}
+                              size="icon"
+                              className="w-8 h-8 rounded-full bg-red-600 text-white hover:bg-red-700 transition-all"
+                              aria-label="Stop generation"
+                            >
+                              <Square className="w-4 h-4" />
+                            </Button>
+                          ) : (
+                            <Button
+                              onClick={() => handleSendMessage()}
+                              disabled={!inputValue.trim() || isLoading}
+                              size="icon"
+                              className={cn(
+                                "w-8 h-8 rounded-full transition-all",
+                                inputValue.trim() && !isLoading
+                                  ? "bg-white text-black hover:bg-gray-200"
+                                  : "bg-gray-600 text-gray-500 cursor-not-allowed"
+                              )}
+                              aria-label="Send message"
+                            >
+                              <ArrowUp className="w-4 h-4" />
+                            </Button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1483,10 +1566,10 @@ export function MainContent({
               </div>
             ) : (
               // Messages
-              <div className="flex justify-center w-full mt-2">
+              <div className="flex justify-center w-full mt-2 overflow-y-auto flex-1">
                 <div
                   className={cn(
-                    "w-full",
+                    "w-full h-full",
                     isMobile
                       ? "py-4 px-2"
                       : useOverlayNav
@@ -1899,20 +1982,31 @@ export function MainContent({
                         >
                           <Mic className="w-5 h-5" />
                         </Button>
-                        <Button
-                          onClick={() => handleSendMessage()}
-                          disabled={!inputValue.trim() || isLoading}
-                          size="icon"
-                          className={cn(
-                            "w-8 h-8 rounded-full transition-all",
-                            inputValue.trim() && !isLoading
-                              ? "bg-white text-black hover:bg-gray-200"
-                              : "bg-gray-600 text-gray-500 cursor-not-allowed"
-                          )}
-                          aria-label="Send message"
-                        >
-                          <ArrowUp className="w-4 h-4" />
-                        </Button>
+                        {isLoading || isStreaming ? (
+                          <Button
+                            onClick={handleStopGeneration}
+                            size="icon"
+                            className="w-8 h-8 rounded-full bg-red-600 text-white hover:bg-red-700 transition-all"
+                            aria-label="Stop generation"
+                          >
+                            <Square className="w-4 h-4" />
+                          </Button>
+                        ) : (
+                          <Button
+                            onClick={() => handleSendMessage()}
+                            disabled={!inputValue.trim() || isLoading}
+                            size="icon"
+                            className={cn(
+                              "w-8 h-8 rounded-full transition-all",
+                              inputValue.trim() && !isLoading
+                                ? "bg-white text-black hover:bg-gray-200"
+                                : "bg-gray-600 text-gray-500 cursor-not-allowed"
+                            )}
+                            aria-label="Send message"
+                          >
+                            <ArrowUp className="w-4 h-4" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </div>

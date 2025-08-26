@@ -34,12 +34,26 @@ export async function POST(req: NextRequest) {
   try {
     log.info('Chat API request received');
     
+    // Check if request was aborted
+    if (req.signal?.aborted) {
+      log.info('Request was aborted before processing');
+      return new Response(null, { status: 499 }); // Client Closed Request
+    }
+    
     // Validate request body
     let body;
     try {
       body = await req.json();
     } catch (error) {
-      log.warn('Invalid JSON in request body', { error: (error as Error).message });
+      const errorMessage = (error as Error).message;
+      
+      // Check if the error is due to request abortion
+      if (errorMessage.includes('aborted') || errorMessage.includes('AbortError') || req.signal?.aborted) {
+        log.info('Request aborted during JSON parsing');
+        return new Response(null, { status: 499 }); // Client Closed Request
+      }
+      
+      log.warn('Invalid JSON in request body', { error: errorMessage });
       throw createError.invalidRequest('Invalid JSON in request body');
     }
 
@@ -52,8 +66,24 @@ export async function POST(req: NextRequest) {
       log.warn('Missing required messages field');
       throw createError.missingFields(['messages']);
     }
+    
+    // Validate that messages have valid content
+    const validMessages = history.filter(msg => {
+      if (!msg || !msg.role || !msg.content) return false;
+      if (typeof msg.content === 'string') return msg.content.trim().length > 0;
+      if (Array.isArray(msg.content)) return msg.content.some(part => 
+        (part.type === 'text' && part.text?.trim().length > 0) ||
+        (part.type === 'image' && part.image)
+      );
+      return false;
+    });
+    
+    if (validMessages.length === 0) {
+      log.warn('No valid messages found');
+      throw createError.invalidRequest('Messages must contain valid content');
+    }
 
-    const trimmedHistory = history.slice(-MAX_CONTEXT);
+    const trimmedHistory = validMessages.slice(-MAX_CONTEXT);
     
     // Get authenticated user ID from Clerk, fallback to request body for unauthenticated users
     let isAuthenticated = false;
@@ -207,10 +237,42 @@ Please use this context to provide more personalized and contextual responses wh
     }
   }
 
+    // Final check for request abortion before AI call
+    if (req.signal?.aborted) {
+      userLog.info('Request was aborted before AI generation');
+      return new Response(null, { status: 499 }); // Client Closed Request
+    }
+
+    // Final validation of messages before sending to AI
+    if (!multimodalMessages || multimodalMessages.length === 0) {
+      userLog.warn('No valid messages to send to AI');
+      throw createError.invalidRequest('No valid messages to process');
+    }
+
+    // Validate that at least one message has content
+    const hasValidContent = multimodalMessages.some(msg => {
+      if (typeof msg.content === 'string') return msg.content.trim().length > 0;
+      if (Array.isArray(msg.content)) return msg.content.some(part => 
+        (part.type === 'text' && part.text?.trim().length > 0) ||
+        (part.type === 'image' && part.image)
+      );
+      return false;
+    });
+
+    if (!hasValidContent) {
+      userLog.warn('Messages do not contain valid content for AI');
+      throw createError.invalidRequest('Messages must contain valid text or image content');
+    }
+
     // Generate AI response with error handling
     let textStream;
     try {
       const result = await withRetry(async () => {
+        // Check for abortion during retry attempts
+        if (req.signal?.aborted) {
+          throw new Error('Request aborted during AI generation');
+        }
+        
         return streamText({
           model,
           messages: multimodalMessages as any,
@@ -219,6 +281,14 @@ Please use this context to provide more personalized and contextual responses wh
       
       textStream = result.textStream;
     } catch (error) {
+      const errorMessage = (error as Error).message;
+      
+      // Check if the error is due to request abortion
+      if (errorMessage.includes('aborted') || errorMessage.includes('AbortError') || req.signal?.aborted) {
+        userLog.info('AI generation was aborted');
+        return new Response(null, { status: 499 }); // Client Closed Request
+      }
+      
       userLog.error('AI generation failed', error as Error);
       throw createError.internal('Failed to generate AI response', error as Error);
     }
