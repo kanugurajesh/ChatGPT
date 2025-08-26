@@ -8,6 +8,11 @@ export const metadata: Metadata = {
   title: "ChatGPT",
   description: "Modern Chat Interface",
   generator: "ChatGPT",
+  icons: {
+    icon: "/chatgpt.png",
+    shortcut: "/chatgpt.png",
+    apple: "/chatgpt.png",
+  },
 };
 
 export default function RootLayout({
