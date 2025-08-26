@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,6 +21,7 @@ interface ChatHeaderProps {
   onTemporaryChatToggle: (enabled: boolean) => void;
   selectedModel: string;
   onModelChange: (model: string) => void;
+  activeChat: boolean;
 }
 
 const MODELS = [
@@ -36,6 +38,7 @@ export function ChatHeader({
   onTemporaryChatToggle,
   selectedModel,
   onModelChange,
+  activeChat,
 }: ChatHeaderProps) {
   return (
     <div className="flex w-full justify-between items-center py-4 px-4 bg-[#212121]">
@@ -74,7 +77,7 @@ export function ChatHeader({
       </DropdownMenu>
 
       {/* Center - Upgrade to Go Button */}
-      <div>
+      <div className={activeChat ? "hidden" : "flex"}>
         <button className="flex items-center gap-1 rounded-full py-2 ps-2.5 pe-3 text-sm font-medium text-white hover:bg-[#414071] dark:bg-[#373669] dark:text-[#DCDBF6] dark:hover:bg-[#414071] bg-[#373768] absolute start-1/2 ltr:-translate-x-1/2 rtl:translate-x-1/2 top-4">
           <svg
             width="20"
