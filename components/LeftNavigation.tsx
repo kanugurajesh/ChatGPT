@@ -141,10 +141,10 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
 
   return (
     <>
-      {/* Backdrop when expanded - for overlay navigation */}
+      {/* Clickable area to close sidebar when expanded - no visual backdrop */}
       {isExpanded && useOverlayNav && (
         <div 
-          className="fixed inset-0 bg-black bg-opacity-50 z-20"
+          className="fixed inset-0 z-20"
           onClick={onClose}
         />
       )}

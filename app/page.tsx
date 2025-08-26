@@ -10,6 +10,7 @@ import { sessionManager } from "@/lib/session";
 import { useUser } from "@clerk/nextjs";
 import { UnAuthLanding } from "@/components/UnAuthLanding";
 import { UnAuthMobile } from "@/components/UnAuthMobile";
+import { cn } from "@/lib/utils";
 
 export default function ChatGPTClone() {
   const { isMobile, isSmallScreen, useOverlayNav, isTablet } = useResponsive();
