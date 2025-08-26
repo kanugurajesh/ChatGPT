@@ -10,6 +10,7 @@ export function useResponsive() {
 
   const [isMobile, setIsMobile] = useState(false)
   const [isTablet, setIsTablet] = useState(false)
+  const [is768px, setIs768px] = useState(false)
   const [isCompactDesktop, setIsCompactDesktop] = useState(false)
   const [isDesktop, setIsDesktop] = useState(false)
 
@@ -25,6 +26,7 @@ export function useResponsive() {
 
       setIsMobile(width < 768)
       setIsTablet(width >= 768 && width < 1024)
+      setIs768px(width >= 768 && width <= 768)
       setIsCompactDesktop(width >= 768 && width < 1100)
       setIsDesktop(width >= 1100)
     }
@@ -41,6 +43,7 @@ export function useResponsive() {
     windowSize,
     isMobile,
     isTablet,
+    is768px,
     isCompactDesktop,
     isDesktop,
     isSmallScreen: isMobile || isTablet,

@@ -8,10 +8,12 @@ import { ImageGallery } from "@/components/ImageGallery";
 import { useResponsive } from "@/hooks/use-responsive";
 import { sessionManager } from "@/lib/session";
 import { useUser } from "@clerk/nextjs";
+import { UnAuthLanding } from "@/components/UnAuthLanding";
+import { UnAuthMobile } from "@/components/UnAuthMobile";
 
 export default function ChatGPTClone() {
-  const { isMobile, isSmallScreen, useOverlayNav } = useResponsive();
-  const { user, isLoaded } = useUser();
+  const { isMobile, isSmallScreen, useOverlayNav, isTablet } = useResponsive();
+  const { user, isLoaded, isSignedIn } = useUser();
   const [navExpanded, setNavExpanded] = useState(false);
   const [showImageView, setShowImageView] = useState(false);
   const [showGalleryView, setShowGalleryView] = useState(false);
@@ -77,6 +79,15 @@ export default function ChatGPTClone() {
     setShowGalleryView(false);
   };
 
+  // Show appropriate UnAuth component based on screen size for unauthenticated users
+  if (isLoaded && !isSignedIn) {
+    // Mobile layout (below 768px)
+    if (isMobile) {
+      return <UnAuthMobile />;
+    }
+    // Desktop/tablet layout (768px and above)
+    return <UnAuthLanding />;
+  }
 
   return (
     <div className="flex w-screen h-screen bg-[#212121] text-white relative overflow-hidden">
