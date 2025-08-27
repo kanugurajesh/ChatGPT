@@ -358,7 +358,7 @@ export function ImageGallery({ onClose }: ImageGalleryProps) {
                   )}
                 >
                   {/* Selection checkbox */}
-                  <div className="absolute top-2 left-2 z-10">
+                  <div className="absolute top-2 left-2 z-20">
                     <input
                       type="checkbox"
                       checked={selectedImages.includes(image.id)}
@@ -400,8 +400,8 @@ export function ImageGallery({ onClose }: ImageGalleryProps) {
                       </div>
                       
                       {/* Overlay */}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-end z-10">
-                        <div className="w-full p-3 text-white relative z-10">
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-end z-10 pointer-events-none">
+                        <div className="w-full p-3 text-white relative z-10 pointer-events-auto">
                           <div className="flex items-center justify-between">
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium truncate">
