@@ -42,7 +42,7 @@ A modern, full-featured ChatGPT clone built with Next.js 15, featuring real-time
 ### Frontend
 - **Framework**: Next.js 15 with App Router and React 19
 - **Styling**: Tailwind CSS 4.x with custom animations
-- **UI Components**: Radix UI primitives with custom theming
+- **UI Components**: shadcn/ui components with custom theming
 - **Icons**: Lucide React icon library
 - **Animations**: Framer Motion for smooth transitions
 - **Typography**: Geist Sans & Mono font family
@@ -90,7 +90,7 @@ chatgpt/
 │   ├── loading.tsx               # Global loading component
 │   └── page.tsx                  # Main chat interface
 ├── components/                   # React Components
-│   ├── ui/                       # Radix UI component library (40+ components)
+│   ├── ui/                       # shadcn/ui component library (40+ components)
 │   ├── ChatHeader.tsx            # Chat interface header with controls
 │   ├── ChatInterface.tsx         # Basic chat component
 │   ├── ErrorBoundary.tsx         # Error handling with retry logic
@@ -483,7 +483,7 @@ NODE_ENV=development pnpm dev
 - **[Cloudinary Documentation](https://cloudinary.com/documentation)**: Image management
 
 ### Component Libraries
-- **[Radix UI](https://www.radix-ui.com/)**: Accessible component primitives
+- **[shadcn/ui](https://ui.shadcn.com/)**: Beautifully designed components
 - **[Tailwind CSS](https://tailwindcss.com/)**: Utility-first CSS framework
 - **[Lucide Icons](https://lucide.dev/)**: Beautiful & consistent icons
 - **[Framer Motion](https://www.framer.com/motion/)**: Animation library
@@ -540,7 +540,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **[Clerk](https://clerk.dev/)** - User management and authentication
 
 ### UI & Design
-- **[Radix UI](https://www.radix-ui.com/)** - Low-level UI primitives and components
+- **[shadcn/ui](https://ui.shadcn.com/)** - Beautifully designed components built on Radix UI
 - **[Tailwind CSS](https://tailwindcss.com/)** - A utility-first CSS framework
 - **[Lucide](https://lucide.dev/)** - Beautiful & consistent icon library
 - **[Framer Motion](https://www.framer.com/motion/)** - A production-ready motion library for React
