@@ -76,7 +76,7 @@ export function UnAuthMobile() {
           <SignInButton>
             <Button
               variant="ghost"
-              className="bg-transparent hover:bg-white/5 text-white px-4 py-2 rounded-full text-sm font-medium transition-colors border-0"
+              className="p-3 rounded-full text-sm font-medium transition-colors border-0 bg-white text-black"
             >
               Log in
             </Button>
