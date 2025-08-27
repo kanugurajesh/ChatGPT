@@ -153,7 +153,8 @@ export function useActiveChat(initialChatId?: string) {
     role: 'user' | 'assistant' | 'system',
     content: string,
     metadata?: any,
-    optimistic = true
+    optimistic = true,
+    messageId?: string
   ): Promise<boolean> => {
     if (!activeChat) {
       setError('No active chat')
@@ -170,9 +171,9 @@ export function useActiveChat(initialChatId?: string) {
       return false
     }
 
-    const tempId = `temp-${Date.now()}`
+    const finalMessageId = messageId || `temp-${Date.now()}`
     const newMessage: ChatMessage = {
-      id: tempId,
+      id: finalMessageId,
       role,
       content,
       timestamp: new Date(),
@@ -204,6 +205,7 @@ export function useActiveChat(initialChatId?: string) {
           role,
           content,
           metadata,
+          messageId: finalMessageId,
         }),
       })
 

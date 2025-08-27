@@ -17,7 +17,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const { chatId } = await params;
     const body = await request.json();
-    const { role, content, metadata } = body;
+    const { role, content, metadata, messageId } = body;
 
     if (!chatId) {
       return NextResponse.json({ error: 'Chat ID is required' }, { status: 400 });
@@ -47,6 +47,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       role,
       content,
       metadata,
+      messageId,
     });
 
     if (!updatedChat) {

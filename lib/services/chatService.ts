@@ -17,6 +17,34 @@ export interface AddMessageData {
   role: 'user' | 'assistant' | 'system';
   content: string;
   metadata?: any;
+  messageId?: string; // Optional: if provided, use this ID instead of generating new one
+}
+
+export interface UpdateMessageData {
+  chatId: string;
+  messageId: string;
+  content: string;
+}
+
+export interface UpdateMessageAndRegenerateData {
+  chatId: string;
+  messageId: string;
+  content: string;
+  userId: string;
+}
+
+export interface UpdateMessageAndRegenerateResult {
+  chat: IChat;
+  removedMessages: IMessage[];
+  assistantMessageToReplace: IMessage | null;
+  contextMessages: IMessage[];
+}
+
+export interface UpdateAssistantMessageData {
+  chatId: string;
+  messageId: string;
+  content: string;
+  metadata?: any;
 }
 
 export interface ChatListOptions {
@@ -213,7 +241,7 @@ export class ChatService {
   static async addMessage(data: AddMessageData): Promise<IChat | null> {
     await connectDB();
 
-    const { chatId, role, content, metadata } = data;
+    const { chatId, role, content, metadata, messageId } = data;
 
     // Validate input
     if (!chatId || !role || content === undefined || content === null) {
@@ -225,7 +253,7 @@ export class ChatService {
     }
 
     const message: IMessage = {
-      id: uuidv4(),
+      id: messageId || uuidv4(), // Use provided ID or generate new one
       role,
       content: String(content), // Ensure content is a string
       timestamp: new Date(),
@@ -248,6 +276,244 @@ export class ChatService {
     }
 
     return chat;
+  }
+
+  /**
+   * Update a message in a chat
+   */
+  static async updateMessage(data: UpdateMessageData): Promise<IChat | null> {
+    await connectDB();
+
+    const { chatId, messageId, content } = data;
+
+    // Validate input
+    if (!chatId || !messageId || content === undefined || content === null) {
+      throw new Error('Invalid message data: chatId, messageId, and content are required');
+    }
+
+    try {
+      // First, get the current message content for edit history
+      const existingChat = await Chat.findOne({ id: chatId }).exec();
+      
+      if (!existingChat) {
+        throw new Error(`Chat with ID ${chatId} not found`);
+      }
+
+      const existingMessage = existingChat.messages.find(msg => msg.id === messageId);
+      
+      if (!existingMessage) {
+        throw new Error(`Message with ID ${messageId} not found in chat ${chatId}`);
+      }
+
+      const previousContent = existingMessage.content;
+
+      // Update the message with edit history
+      const existingEditHistory = existingMessage?.metadata?.editHistory || [];
+      const newEditHistory = previousContent ? [
+        ...existingEditHistory,
+        {
+          content: previousContent,
+          timestamp: new Date()
+        }
+      ] : existingEditHistory;
+
+      const chat = await Chat.findOneAndUpdate(
+        { 
+          id: chatId,
+          'messages.id': messageId
+        },
+        { 
+          $set: { 
+            'messages.$.content': String(content),
+            'messages.$.metadata.editHistory': newEditHistory,
+            updatedAt: new Date()
+          }
+        },
+        { new: true }
+      ).exec();
+
+      return chat;
+    } catch (error) {
+      throw createError.internal('Failed to update message', error as Error);
+    }
+  }
+
+  /**
+   * Update a user message and remove subsequent assistant messages for regeneration
+   */
+  static async updateMessageAndPrepareRegenerate(data: UpdateMessageAndRegenerateData): Promise<UpdateMessageAndRegenerateResult> {
+    await connectDB();
+
+    const { chatId, messageId, content, userId } = data;
+
+    // Validate input
+    if (!chatId || !messageId || content === undefined || content === null || !userId) {
+      throw new Error('Invalid message data: chatId, messageId, content, and userId are required');
+    }
+
+    try {
+      const existingChat = await Chat.findOne({ id: chatId, userId }).exec();
+      
+      if (!existingChat) {
+        throw new Error(`Chat with ID ${chatId} not found for user ${userId}`);
+      }
+
+
+      console.log(`Searching for message ID: ${messageId}`);
+      console.log(`Available message IDs in chat:`, existingChat.messages.map(m => ({ id: m.id, role: m.role })));
+      
+      const messageIndex = existingChat.messages.findIndex(msg => msg.id === messageId);
+      console.log(`Message found at index: ${messageIndex}`);
+      
+      if (messageIndex === -1) {
+        throw new Error(`Message with ID ${messageId} not found in chat ${chatId}. Available IDs: ${existingChat.messages.map(m => m.id).join(', ')}`);
+      }
+
+      const existingMessage = existingChat.messages[messageIndex];
+      
+      // Only allow updating user messages
+      if (existingMessage.role !== 'user') {
+        throw new Error('Only user messages can be edited');
+      }
+
+      const previousContent = existingMessage.content;
+      console.log(`Updating message - Previous content: "${previousContent}"`);
+      console.log(`Updating message - New content: "${content}"`);
+
+      // Capture messages that will be removed (for returning to frontend)
+      const removedMessages = existingChat.messages.slice(messageIndex + 1);
+      const assistantMessageToReplace = removedMessages.find(msg => msg.role === 'assistant') || null;
+      console.log(`Found ${removedMessages.length} messages to remove`);
+      if (assistantMessageToReplace) {
+        console.log(`Assistant message to replace: ${assistantMessageToReplace.id}`);
+      }
+
+      // Update the message with edit history
+      const existingEditHistory = existingMessage?.metadata?.editHistory || [];
+      const newEditHistory = previousContent ? [
+        ...existingEditHistory,
+        {
+          content: previousContent,
+          timestamp: new Date()
+        }
+      ] : existingEditHistory;
+
+      // Create updated messages array - keep messages up to and including the edited message
+      // Remove all messages after the edited user message (they will be regenerated)
+      const updatedMessages = existingChat.messages.slice(0, messageIndex + 1);
+      
+      // Update the user message content and edit history
+      updatedMessages[messageIndex] = {
+        id: existingMessage.id,
+        role: existingMessage.role,
+        content: String(content),
+        timestamp: existingMessage.timestamp,
+        attachments: existingMessage.attachments || [],
+        metadata: {
+          ...existingMessage.metadata,
+          editHistory: newEditHistory
+        }
+      };
+
+      console.log(`About to save message with content: "${updatedMessages[messageIndex].content}"`);
+      console.log(`Updated messages array:`, updatedMessages.map(m => ({ id: m.id, role: m.role, content: m.content })));
+
+      // Update the entire chat with the truncated messages array
+      const chat = await Chat.findOneAndUpdate(
+        { id: chatId, userId },
+        { 
+          messages: updatedMessages,
+          updatedAt: new Date()
+        },
+        { new: true }
+      ).exec();
+
+      console.log(`After update - returned chat messages:`, chat?.messages.map(m => ({ id: m.id, role: m.role, content: m.content })));
+
+      if (!chat) {
+        throw new Error(`Failed to update chat ${chatId}`);
+      }
+
+      // Return comprehensive result including context for regeneration
+      return {
+        chat,
+        removedMessages,
+        assistantMessageToReplace,
+        contextMessages: chat.messages
+      };
+    } catch (error) {
+      throw createError.internal('Failed to update message and prepare regenerate', error as Error);
+    }
+  }
+
+  /**
+   * Update or create an assistant message (for regenerated responses)
+   */
+  static async updateOrCreateAssistantMessage(data: UpdateAssistantMessageData): Promise<IChat | null> {
+    await connectDB();
+
+    const { chatId, messageId, content, metadata } = data;
+
+    // Validate input
+    if (!chatId || !messageId || content === undefined || content === null) {
+      throw new Error('Invalid message data: chatId, messageId, and content are required');
+    }
+
+    try {
+      const existingChat = await Chat.findOne({ id: chatId }).exec();
+      
+      if (!existingChat) {
+        throw new Error(`Chat with ID ${chatId} not found`);
+      }
+
+      const messageIndex = existingChat.messages.findIndex(msg => msg.id === messageId);
+      
+      if (messageIndex !== -1) {
+        // Update existing assistant message
+        const chat = await Chat.findOneAndUpdate(
+          { 
+            id: chatId,
+            'messages.id': messageId
+          },
+          { 
+            $set: { 
+              'messages.$.content': String(content),
+              'messages.$.metadata': {
+                ...existingChat.messages[messageIndex].metadata,
+                ...metadata
+              },
+              updatedAt: new Date()
+            }
+          },
+          { new: true }
+        ).exec();
+
+        return chat;
+      } else {
+        // Create new assistant message
+        const newMessage: IMessage = {
+          id: messageId,
+          role: 'assistant',
+          content: String(content),
+          timestamp: new Date(),
+          attachments: [],
+          metadata
+        };
+
+        const chat = await Chat.findOneAndUpdate(
+          { id: chatId },
+          { 
+            $push: { messages: newMessage },
+            $set: { updatedAt: new Date() }
+          },
+          { new: true }
+        ).exec();
+
+        return chat;
+      }
+    } catch (error) {
+      throw createError.internal('Failed to update or create assistant message', error as Error);
+    }
   }
 
   /**

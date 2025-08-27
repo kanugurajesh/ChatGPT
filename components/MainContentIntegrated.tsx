@@ -37,6 +37,7 @@ import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github-dark.css";
 import { backgroundMemorySaver } from "@/lib/services/backgroundSaver";
 import { ImageSkeleton } from "./ui/image-skeleton";
+import { MessageEditHistory } from "./MessageEditHistory";
 
 interface FileAttachment {
   type: "file";
@@ -53,6 +54,16 @@ interface Message {
   timestamp: Date;
   isEditing?: boolean;
   attachments?: FileAttachment[];
+  metadata?: {
+    model?: string;
+    tokens?: number;
+    imageGenerated?: boolean;
+    regenerated?: boolean;
+    editHistory?: Array<{
+      content: string;
+      timestamp: Date;
+    }>;
+  };
 }
 
 interface MainContentProps {
@@ -134,6 +145,7 @@ export function MainContent({
   const [isLoading, setIsLoading] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
+  const [isEditingSave, setIsEditingSave] = useState(false);
   const [userId, setUserId] = useState<string>("default_user");
   // Removed memory tracking states
   const [isSavingToMongoDB, setIsSavingToMongoDB] = useState(false);
@@ -184,6 +196,7 @@ export function MainContent({
           content: msg.content,
           role: msg.role,
           timestamp: msg.timestamp,
+          metadata: msg.metadata || {},
         })) || [];
 
   useEffect(() => {
@@ -218,6 +231,7 @@ export function MainContent({
           role: msg.role,
           timestamp: msg.timestamp,
           attachments: msg.attachments || [], // Provide default empty array
+          metadata: msg.metadata || {}, // Include metadata for edit history
         }));
 
         // Method 1: Restore generated images from message metadata (existing approach)
@@ -459,6 +473,147 @@ export function MainContent({
   };
 
   // Streaming API call with conditional persistence
+  // Helper function to regenerate response from existing messages
+  const regenerateResponseFromMessages = async (contextMessages: Message[], assistantToReplace: Message | null = null) => {
+    try {
+      setIsLoading(true);
+      setIsStreaming(true);
+
+      // Get context for API call
+      const apiMessages = contextMessages.slice(-MAX_CONTEXT).map((m) => ({
+        role: m.role,
+        content: m.content,
+      }));
+      
+      console.log('Sending to AI - Context messages:', apiMessages);
+      console.log('AI will see user message:', apiMessages.filter(m => m.role === 'user').pop()?.content);
+
+      // Use existing assistant message ID if replacing, otherwise create new
+      const assistantId = assistantToReplace ? assistantToReplace.id : crypto.randomUUID();
+      const assistantMessage: Message = {
+        id: assistantId,
+        content: "",
+        role: "assistant",
+        timestamp: assistantToReplace ? assistantToReplace.timestamp : new Date(),
+      };
+
+      console.log(`Using assistant ID: ${assistantId}, replacing: ${assistantToReplace ? 'Yes' : 'No'}`);
+      if (assistantToReplace) {
+        console.log(`Replacing assistant message: ${assistantToReplace.id}`);
+      }
+
+      // Add assistant message to local state
+      const updatedMessages = [...contextMessages, assistantMessage];
+      setLocalMessages(updatedMessages);
+
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: apiMessages,
+          userId: isTemporaryChat ? "anonymous" : user?.id || userId,
+          chatId: activeChatId,
+          isTemporaryChat: isTemporaryChat,
+        }),
+      });
+
+      if (!response.body) throw new Error("No response body");
+
+      const reader = response.body.getReader();
+      let streamingText = "";
+
+      // Stream the response
+      while (true) {
+        try {
+          const { value, done } = await reader.read();
+          if (done) break;
+          const chunk = new TextDecoder().decode(value);
+          streamingText += chunk;
+
+          // Update the assistant message content in real-time
+          setLocalMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantId ? { ...msg, content: streamingText } : msg
+            )
+          );
+        } catch (streamError) {
+          if (streamError instanceof Error && streamError.name === "AbortError") {
+            break;
+          }
+          throw streamError;
+        }
+      }
+
+      // End streaming mode
+      setIsStreaming(false);
+
+      // Save to MongoDB in background
+      if (streamingText.trim() && !isTemporaryChat && activeChatId) {
+        setIsSavingToMongoDB(true);
+        try {
+          if (assistantToReplace) {
+            // Update existing assistant message using its original ID
+            const response = await fetch(`/api/chats/${activeChatId}/messages/assistant`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                messageId: assistantId,
+                content: streamingText.trim(),
+                metadata: {
+                  model: selectedModel,
+                  tokens: streamingText.length,
+                  regenerated: true,
+                  originalMessageId: assistantToReplace.id,
+                }
+              })
+            });
+            
+            if (!response.ok) {
+              console.error('Failed to update assistant message, falling back to create new');
+              // Fallback to creating new message if update fails
+              await addMessage(
+                "assistant",
+                streamingText.trim(),
+                {
+                  model: selectedModel,
+                  tokens: streamingText.length,
+                  regenerated: true,
+                },
+                false,
+                assistantId
+              );
+            }
+          } else {
+            // Create new assistant message
+            await addMessage(
+              "assistant",
+              streamingText.trim(),
+              {
+                model: selectedModel,
+                tokens: streamingText.length,
+                regenerated: true,
+              },
+              false,
+              assistantId
+            );
+          }
+          
+          // Refresh chat history
+          fetchChatHistory();
+        } catch (error) {
+          console.error('Failed to save regenerated response:', error);
+        } finally {
+          setIsSavingToMongoDB(false);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to regenerate response:', error);
+      setIsStreaming(false);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSendMessage = async (
     content: string = inputValue,
     attachments?: FileAttachment[]
@@ -625,7 +780,8 @@ export function MainContent({
                   "user",
                   content.trim(),
                   { attachments },
-                  false
+                  false,
+                  userMessage.id
                 );
               } else {
               }
@@ -654,7 +810,8 @@ export function MainContent({
                   "assistant",
                   assistantMessage.content,
                   messageMetadata,
-                  false
+                  false,
+                  assistantMessage.id
                 );
               } else {
                 // For new chats, use direct API call since activeChat is still null
@@ -803,7 +960,7 @@ export function MainContent({
           try {
             // For existing chats, save the user message first
             if (activeChat) {
-              await addMessage("user", content.trim(), { attachments }, false);
+              await addMessage("user", content.trim(), { attachments }, false, userMessage.id);
             }
 
             // Then save the assistant response
@@ -814,7 +971,8 @@ export function MainContent({
                 model: selectedModel,
                 tokens: streamingText.length,
               },
-              false
+              false,
+              assistantId
             );
 
             return true;
@@ -904,7 +1062,8 @@ export function MainContent({
               "assistant",
               "Sorry, I encountered an error. Please try again.",
               { error: true },
-              false
+              false,
+              crypto.randomUUID() // Generate new ID for error message
             );
           } catch (dbError) {
           }
@@ -926,15 +1085,214 @@ export function MainContent({
     const messageIndex = messages.findIndex((m) => m.id === messageId);
     if (messageIndex === -1) return;
 
-    // For now, we'll regenerate from the edited message
-    // This is a simplified approach - in a full implementation,
-    // you might want to update the message in the database directly
-    setEditingMessageId(null);
-    setEditContent("");
+    const message = messages[messageIndex];
+    const originalMessages = [...messages]; // Keep original state for rollback
+    
+    setIsEditingSave(true);
 
-    if (messages[messageIndex].role === "user") {
-      // Regenerate response from this point
-      await handleSendMessage(editContent.trim());
+    try {
+      // Only update user messages (assistant messages should use regenerate)
+      if (message.role === "user" && activeChatId && !isTemporaryChat) {
+        console.log(`Editing message: ${messageId} in chat: ${activeChatId}`);
+        console.log(`Original message content: "${message.content}"`);
+        console.log(`New message content: "${editContent.trim()}"`);
+        
+        // Check if message exists in activeChat (database state)
+        const messageExistsInDB = activeChat?.messages.some(m => m.id === messageId);
+        console.log(`Message exists in database: ${messageExistsInDB}`);
+        
+        if (activeChat) {
+          console.log(`Database messages:`, activeChat.messages.map(m => ({ 
+            id: m.id, 
+            role: m.role, 
+            content: m.content.substring(0, 50) + '...' 
+          })));
+        }
+        
+        // If message doesn't exist in DB, we need to sync the IDs first
+        if (!messageExistsInDB) {
+          console.log('Message not found in database, refreshing chat to sync IDs...');
+          await fetchChatHistory();
+          
+          // Find the message by content match using the original content (before editing)
+          // We need to match against the original message content, not the edited content
+          const dbMessage = activeChat?.messages.find(m => 
+            m.role === message.role && 
+            m.content === message.content // message.content is the original content
+          );
+          
+          if (dbMessage) {
+            console.log(`Found matching message in DB with ID: ${dbMessage.id}, updating local reference`);
+            
+            // Update the message ID in our local messages array
+            const updatedLocalMessages = [...messages];
+            updatedLocalMessages[messageIndex] = { ...message, id: dbMessage.id };
+            setLocalMessages(updatedLocalMessages);
+            
+            // Update the messageId for the API call
+            messageId = dbMessage.id;
+          } else {
+            // If we still can't find it, it might be that the message hasn't been saved yet
+            // Let's try one more time after a short delay
+            console.log('Still not found, waiting a moment and trying again...');
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            await fetchChatHistory();
+            
+            const dbMessageRetry = activeChat?.messages.find(m => 
+              m.role === message.role && 
+              m.content === message.content // Still using original content for matching
+            );
+            
+            if (dbMessageRetry) {
+              console.log(`Found message on retry with ID: ${dbMessageRetry.id}`);
+              const updatedLocalMessages = [...messages];
+              updatedLocalMessages[messageIndex] = { ...message, id: dbMessageRetry.id };
+              setLocalMessages(updatedLocalMessages);
+              messageId = dbMessageRetry.id;
+            } else {
+              throw new Error('Cannot find corresponding message in database. The message may not have been saved yet. Please wait a moment and try again.');
+            }
+          }
+        }
+        
+        // Optimistically update local state
+        const updatedMessages = [...messages];
+        updatedMessages[messageIndex] = { ...message, content: editContent.trim() };
+        setLocalMessages(updatedMessages);
+
+        // Call API to update the message in the database and prepare for regeneration
+        console.log(`Making API call to update message ${messageId} with content: "${editContent.trim()}"`);
+        
+        const response = await fetch(`/api/chats/${activeChatId}/messages/${messageId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            content: editContent.trim(),
+            regenerateResponse: true, // This will remove subsequent messages for regeneration
+          }),
+        });
+        
+        console.log(`API response status: ${response.status}`);
+
+        if (!response.ok) {
+          // Revert on API error
+          setLocalMessages(originalMessages);
+          let errorMessage = `Failed to update message: ${response.status}`;
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.error || errorMessage;
+            console.error('API Error Details:', errorData);
+          } catch (parseError) {
+            const errorText = await response.text();
+            console.error('Raw Error Response:', errorText);
+            errorMessage = `${errorMessage} - ${errorText}`;
+          }
+          throw new Error(errorMessage);
+        }
+
+        // Update was successful - get the updated chat data
+        const result = await response.json();
+        const updatedChat = result.chat;
+        const shouldRegenerate = result.shouldRegenerate;
+        const assistantMessageToReplace = result.assistantMessageToReplace;
+        const contextMessages = result.contextMessages;
+        
+        console.log('Frontend received context messages from API:', contextMessages.map(m => ({ 
+          id: m.id, 
+          role: m.role, 
+          content: m.content 
+        })));
+        console.log('Should regenerate:', shouldRegenerate);
+        console.log('Assistant to replace:', assistantMessageToReplace);
+
+        // Update local messages with the context from backend (already processed)
+        const dbMessages: Message[] = contextMessages.map((msg: any) => ({
+          id: msg.id,
+          content: msg.content,
+          role: msg.role,
+          timestamp: msg.timestamp,
+          attachments: msg.attachments || [],
+          metadata: msg.metadata || {},
+        }));
+
+        console.log('Setting updated messages from backend:', dbMessages);
+        setLocalMessages(dbMessages);
+        
+        // Ensure the UI reflects the updated content immediately
+        const updatedMessage = dbMessages.find(m => m.id === messageId);
+        if (updatedMessage) {
+          console.log(`Updated message content in UI: "${updatedMessage.content}"`);
+        }
+        
+        // If we should regenerate, trigger a new response using the backend-provided context
+        if (shouldRegenerate) {
+          const hasAssistantResponse = dbMessages.some(m => m.role === 'assistant');
+          
+          if (assistantMessageToReplace || !hasAssistantResponse) {
+            // If there was an assistant message to replace OR no assistant response exists yet
+            console.log('Regenerating response...', { 
+              hasAssistantResponse, 
+              assistantMessageToReplace: !!assistantMessageToReplace,
+              messageCount: dbMessages.length 
+            });
+            try {
+              await regenerateResponseFromMessages(dbMessages, assistantMessageToReplace);
+              console.log('Response regeneration completed successfully');
+            } catch (regenerateError) {
+              console.error('Error during response regeneration:', regenerateError);
+            }
+          } else {
+            console.log('No regeneration needed - no assistant message to replace and assistant response exists');
+          }
+        } else {
+          console.log('shouldRegenerate is false, not regenerating response');
+        }
+
+        // Force refresh chat history to ensure UI is in sync
+        console.log('Edit completed successfully, refreshing chat history...');
+        try {
+          await fetchChatHistory();
+          console.log('Chat history refreshed successfully');
+          
+          // Also reload the chat to ensure complete sync
+          if (activeChatId) {
+            await loadChat(activeChatId);
+            console.log('Chat reloaded successfully');
+          }
+        } catch (refreshError) {
+          console.error('Error refreshing chat:', refreshError);
+        }
+        
+        // Reset UI states immediately after successful edit
+        console.log('Edit completed successfully, resetting UI states...');
+        setIsEditingSave(false);
+        setEditingMessageId(null);
+        setEditContent("");
+        
+      } else if (message.role === "user") {
+        // For temporary chats, just update local state
+        const updatedMessages = [...messages];
+        updatedMessages[messageIndex] = { ...message, content: editContent.trim() };
+        setLocalMessages(updatedMessages);
+      } else {
+        // For assistant messages, regenerate the response (existing behavior)
+        await handleRegenerateResponse(messageId);
+        return; // Exit early as regenerate handles its own UI states
+      }
+    } catch (error) {
+      console.error('Failed to save edit:', error);
+      // Ensure we revert to original state on any error
+      setLocalMessages(originalMessages);
+      
+      // TODO: Add toast notification for better UX
+      alert(`Failed to save edit: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      console.log('Edit operation completed, resetting UI states...');
+      setIsEditingSave(false);
+      setEditingMessageId(null);
+      setEditContent("");
     }
   };
 
@@ -1044,7 +1402,8 @@ export function MainContent({
                     }
                   : undefined,
               },
-              false
+              false,
+              newAssistantId
             );
           } catch (error) {
           } finally {
@@ -1116,7 +1475,8 @@ export function MainContent({
                 tokens: fullContent.length,
                 regenerated: true,
               },
-              false
+              false,
+              newAssistantId
             );
 
             // Background memory saving removed
@@ -1564,15 +1924,17 @@ export function MainContent({
                                 <div className="flex justify-end space-x-2">
                                   <Button
                                     onClick={handleCancelEdit}
-                                    className="bg-black hover:bg-[#4a4b4a] text-white border-none rounded-full px-4 py-2 h-8 text-sm font-medium"
+                                    disabled={isEditingSave}
+                                    className="bg-black hover:bg-[#4a4b4a] text-white border-none rounded-full px-4 py-2 h-8 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                                   >
                                     Cancel
                                   </Button>
                                   <Button
                                     onClick={() => handleSaveEdit(message.id)}
-                                    className="bg-white hover:bg-gray-100 text-black border-none rounded-full px-4 py-2 h-8 text-sm font-medium"
+                                    disabled={isEditingSave}
+                                    className="bg-white hover:bg-gray-100 text-black border-none rounded-full px-4 py-2 h-8 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                                   >
-                                    Send
+                                    {isEditingSave ? "Saving..." : "Send"}
                                   </Button>
                                 </div>
                               </div>
@@ -1635,6 +1997,13 @@ export function MainContent({
                                 <div className="whitespace-pre-wrap">
                                   {message.content}
                                 </div>
+                                {/* Edit history for user messages */}
+                                {message.metadata?.editHistory && message.metadata.editHistory.length > 0 && (
+                                  <MessageEditHistory 
+                                    editHistory={message.metadata.editHistory} 
+                                    className="mt-2"
+                                  />
+                                )}
                               </>
                             )}
                           </div>
@@ -1659,8 +2028,10 @@ export function MainContent({
                               onClick={() =>
                                 handleEditMessage(message.id, message.content)
                               }
-                              className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
+                              disabled={isSavingToMongoDB}
+                              className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
                               size="icon"
+                              title={isSavingToMongoDB ? "Please wait for message to finish saving" : "Edit message"}
                             >
                               <Edit3 className="w-4 h-4" />
                             </Button>
