@@ -234,6 +234,19 @@ export function MainContent({
           metadata: msg.metadata || {}, // Include metadata for edit history
         }));
 
+        // Debug logging to check message content
+        console.log('Loading messages from database:', {
+          chatId: activeChatId,
+          totalMessages: dbMessages.length,
+          userMessages: dbMessages.filter(m => m.role === 'user').length,
+          assistantMessages: dbMessages.filter(m => m.role === 'assistant').length,
+          assistantContents: dbMessages.filter(m => m.role === 'assistant').map(m => ({
+            id: m.id,
+            content: m.content,
+            hasContent: !!m.content?.trim()
+          }))
+        });
+
         // Method 1: Restore generated images from message metadata (existing approach)
         const restoredFromMetadata: {
           [messageId: string]: { url: string; publicId: string };
@@ -651,12 +664,23 @@ export function MainContent({
           onChatCreated?.(currentChatId);
         } else {
           // For persistent chats, create in database
+          console.log('🆕 Creating new persistent chat...');
           const title = generateTitle(content.trim());
+          
+          console.log('📞 Calling createNewChat with:', {
+            title: title,
+            userContent: content.trim(),
+            currentActiveChat: !!activeChat,
+            currentActiveChatId: activeChatId
+          });
+          
           currentChatId =
             (await createNewChat(title, {
               role: "user",
               content: content.trim(),
             })) || undefined;
+
+          console.log('✅ Chat created with ID:', currentChatId);
 
           if (!currentChatId) {
             throw new Error("Failed to create new chat");
@@ -667,6 +691,12 @@ export function MainContent({
 
           // Refresh chat history in sidebar
           fetchChatHistory();
+
+          console.log('🎯 About to continue with AI response. Current state:', {
+            currentChatId: currentChatId,
+            activeChat: !!activeChat,
+            activeChatId: activeChatId
+          });
 
           // Continue with AI response since the initial message was already added
         }
@@ -805,7 +835,16 @@ export function MainContent({
 
 
               // Save assistant message - use direct API call if activeChat is null (new chats)
+              console.log('🔥 FIRST RESPONSE SAVING DEBUG:', {
+                hasActiveChat: !!activeChat,
+                currentChatId: currentChatId,
+                assistantContentLength: assistantMessage.content?.length,
+                assistantContent: assistantMessage.content?.substring(0, 100) + '...',
+                messageMetadata: messageMetadata
+              });
+
               if (activeChat) {
+                console.log('📝 Saving via addMessage (existing chat)');
                 await addMessage(
                   "assistant",
                   assistantMessage.content,
@@ -814,6 +853,7 @@ export function MainContent({
                   assistantMessage.id
                 );
               } else {
+                console.log('🆕 Saving via direct API (new chat) to chatId:', currentChatId);
                 // For new chats, use direct API call since activeChat is still null
                 const response = await fetch(
                   `/api/chats/${currentChatId}/messages`,
@@ -831,6 +871,12 @@ export function MainContent({
                   }
                 );
 
+                console.log('🌐 Direct API response:', {
+                  ok: response.ok,
+                  status: response.status,
+                  statusText: response.statusText
+                });
+
                 if (!response.ok) {
                   throw new Error(
                     `Failed to save assistant message: ${response.status}`
@@ -841,6 +887,13 @@ export function MainContent({
 
               return true;
             } catch (error) {
+              console.error('❌ CRITICAL: First AI response saving failed:', error);
+              console.error('Error details:', {
+                errorMessage: error instanceof Error ? error.message : String(error),
+                currentChatId: currentChatId,
+                hasActiveChat: !!activeChat,
+                assistantContentLength: assistantMessage?.content?.length
+              });
               return false;
             } finally {
               setIsSavingToMongoDB(false);
@@ -953,30 +1006,81 @@ export function MainContent({
 
       // Save to MongoDB in background without affecting UI state (skip for temporary chats)
       if (streamingText.trim() && !isTemporaryChat) {
+        console.log('💾 Regular chat saving started:', {
+          hasActiveChat: !!activeChat,
+          currentChatId: currentChatId,
+          streamingTextLength: streamingText.length,
+          isTemporary: isTemporaryChat
+        });
+        
         setIsSavingToMongoDB(true);
 
         // Background save - don't await this, let it run async
         const backgroundSave = async () => {
           try {
+            console.log('📝 Attempting to save regular chat response...');
+            
             // For existing chats, save the user message first
             if (activeChat) {
+              console.log('👤 Saving user message via addMessage (existing chat)');
               await addMessage("user", content.trim(), { attachments }, false, userMessage.id);
+            } else {
+              console.log('🆕 New chat: User message already saved during createNewChat');
             }
 
-            // Then save the assistant response
-            await addMessage(
-              "assistant",
-              streamingText.trim(),
-              {
-                model: selectedModel,
-                tokens: streamingText.length,
-              },
-              false,
-              assistantId
-            );
+            // Save the assistant response - use direct API for new chats, addMessage for existing
+            if (activeChat) {
+              console.log('🤖 Saving assistant response via addMessage (existing chat)');
+              await addMessage(
+                "assistant",
+                streamingText.trim(),
+                {
+                  model: selectedModel,
+                  tokens: streamingText.length,
+                },
+                false,
+                assistantId
+              );
+            } else {
+              console.log('🆕 Saving assistant response via direct API (new chat) to chatId:', currentChatId);
+              
+              const response = await fetch(
+                `/api/chats/${currentChatId}/messages`,
+                {
+                  method: "POST",
+                  credentials: "include",
+                  headers: {
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    role: "assistant",
+                    content: streamingText.trim(),
+                    metadata: {
+                      model: selectedModel,
+                      tokens: streamingText.length,
+                    },
+                    messageId: assistantId,
+                  }),
+                }
+              );
 
+              console.log('🌐 Direct API response for regular chat:', {
+                ok: response.ok,
+                status: response.status,
+                statusText: response.statusText
+              });
+
+              if (!response.ok) {
+                throw new Error(
+                  `Failed to save assistant message: ${response.status}`
+                );
+              }
+            }
+
+            console.log('✅ Regular chat saving completed successfully');
             return true;
           } catch (error) {
+            console.error('❌ Regular chat saving failed:', error);
             return false;
           } finally {
             setIsSavingToMongoDB(false);
@@ -1899,7 +2003,18 @@ export function MainContent({
                       : "py-6 px-4 max-w-4xl"
                   )}
                 >
-                  {messages.map((message) => (
+                  {messages.map((message) => {
+                    // Debug logging for each message being rendered
+                    if (message.role === 'assistant') {
+                      console.log('Rendering assistant message:', {
+                        id: message.id,
+                        content: message.content,
+                        hasContent: !!message.content?.trim(),
+                        contentLength: message.content?.length || 0
+                      });
+                    }
+                    
+                    return (
                     <div key={message.id} className="mb-8">
                       {message.role === "user" ? (
                         // User message - right aligned pill
@@ -2279,7 +2394,7 @@ export function MainContent({
                         </div>
                       )}
                     </div>
-                  ))}
+                  )})}
 
                   {isLoading && !isGeneratingImage && (
                     <div className="text-gray-400 text-sm animate-pulse">
