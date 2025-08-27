@@ -149,7 +149,9 @@ export function MainContent({
     useState<AbortController | null>(null);
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [likedMessages, setLikedMessages] = useState<Set<string>>(new Set());
-  const [dislikedMessages, setDislikedMessages] = useState<Set<string>>(new Set());
+  const [dislikedMessages, setDislikedMessages] = useState<Set<string>>(
+    new Set()
+  );
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const { isMobile, useOverlayNav } = useResponsive();
@@ -1351,14 +1353,14 @@ export function MainContent({
   };
 
   const handleLikeMessage = (messageId: string) => {
-    setLikedMessages(prev => {
+    setLikedMessages((prev) => {
       const newSet = new Set(prev);
       if (newSet.has(messageId)) {
         newSet.delete(messageId);
       } else {
         newSet.add(messageId);
         // Remove from disliked if it was disliked
-        setDislikedMessages(prevDisliked => {
+        setDislikedMessages((prevDisliked) => {
           const newDislikedSet = new Set(prevDisliked);
           newDislikedSet.delete(messageId);
           return newDislikedSet;
@@ -1369,14 +1371,14 @@ export function MainContent({
   };
 
   const handleDislikeMessage = (messageId: string) => {
-    setDislikedMessages(prev => {
+    setDislikedMessages((prev) => {
       const newSet = new Set(prev);
       if (newSet.has(messageId)) {
         newSet.delete(messageId);
       } else {
         newSet.add(messageId);
         // Remove from liked if it was liked
-        setLikedMessages(prevLiked => {
+        setLikedMessages((prevLiked) => {
           const newLikedSet = new Set(prevLiked);
           newLikedSet.delete(messageId);
           return newLikedSet;
@@ -1631,7 +1633,12 @@ export function MainContent({
                         </div>
                       </>
                     ) : (
-                      <div className={cn("text-2xl font-medium text-white", isMobile && "mt-20")}>
+                      <div
+                        className={cn(
+                          "text-2xl font-medium text-white",
+                          isMobile && "mt-20"
+                        )}
+                      >
                         Ready when you are.
                       </div>
                     )}
@@ -1712,25 +1719,6 @@ export function MainContent({
                         </div>
                       </div>
                     </div>
-
-                    {/* Status indicator */}
-                    <div className="text-center mt-3 text-xs text-gray-500">
-                      {isTemporaryChat ? (
-                        <div className="flex items-center justify-center gap-2"></div>
-                      ) : isSignedIn ? (
-                        <div className="flex items-center justify-center gap-2"></div>
-                      ) : (
-                        <div className="flex flex-col items-center gap-2">
-                          <span>
-                            ⚠️ Please sign in to save and access your chat
-                            history
-                          </span>
-                          <span className="text-xs text-gray-600">
-                            Your conversations will be lost without signing in
-                          </span>
-                        </div>
-                      )}
-                    </div>
                   </div>
                 </div>
               </div>
@@ -1752,7 +1740,12 @@ export function MainContent({
                       {message.role === "user" ? (
                         // User message - right aligned pill
                         <div className="flex flex-col items-end mb-6 group">
-                          <div className={cn("bg-[#2f2f2f] text-white rounded-3xl p-3 text-base relative", editingMessageId == message.id && "w-full")}>
+                          <div
+                            className={cn(
+                              "bg-[#2f2f2f] text-white rounded-3xl p-3 text-base relative",
+                              editingMessageId == message.id && "w-full"
+                            )}
+                          >
                             {editingMessageId === message.id ? (
                               <div className="rounded-2xl p-2 w-full ">
                                 <Textarea
@@ -1853,12 +1846,16 @@ export function MainContent({
                           {/* Copy and Edit buttons for user messages - only visible on hover */}
                           <div className="flex items-center mt-2 mr-2 space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
                             <Button
-                              onClick={() => copyToClipboard(message.content, message.id)}
+                              onClick={() =>
+                                copyToClipboard(message.content, message.id)
+                              }
                               className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
                               size="icon"
                             >
                               {copiedMessageId === message.id ? (
-                                <span className="text-green-400 text-xs font-medium">✓</span>
+                                <span className="text-green-400 text-xs font-medium">
+                                  ✓
+                                </span>
                               ) : (
                                 <Copy className="w-4 h-4" />
                               )}
@@ -2064,7 +2061,9 @@ export function MainContent({
                                   size="icon"
                                 >
                                   {copiedMessageId === message.id ? (
-                                    <span className="text-green-400 text-xs font-medium animate-pulse">✓</span>
+                                    <span className="text-green-400 text-xs font-medium animate-pulse">
+                                      ✓
+                                    </span>
                                   ) : (
                                     <Copy className="w-4 h-4" />
                                   )}
@@ -2073,31 +2072,39 @@ export function MainContent({
                                   onClick={() => handleLikeMessage(message.id)}
                                   className={cn(
                                     "h-8 w-8 p-0 bg-transparent hover:bg-gray-700 rounded-lg transition-all duration-200 transform hover:scale-110",
-                                    likedMessages.has(message.id) 
-                                      ? "text-blue-400 hover:text-blue-300" 
+                                    likedMessages.has(message.id)
+                                      ? "text-blue-400 hover:text-blue-300"
                                       : "text-gray-400 hover:text-white"
                                   )}
                                   size="icon"
                                 >
-                                  <ThumbsUp className={cn(
-                                    "w-4 h-4 transition-all duration-200",
-                                    likedMessages.has(message.id) && "animate-bounce"
-                                  )} />
+                                  <ThumbsUp
+                                    className={cn(
+                                      "w-4 h-4 transition-all duration-200",
+                                      likedMessages.has(message.id) &&
+                                        "animate-bounce"
+                                    )}
+                                  />
                                 </Button>
                                 <Button
-                                  onClick={() => handleDislikeMessage(message.id)}
+                                  onClick={() =>
+                                    handleDislikeMessage(message.id)
+                                  }
                                   className={cn(
                                     "h-8 w-8 p-0 bg-transparent hover:bg-gray-700 rounded-lg transition-all duration-200 transform hover:scale-110",
-                                    dislikedMessages.has(message.id) 
-                                      ? "text-red-400 hover:text-red-300" 
+                                    dislikedMessages.has(message.id)
+                                      ? "text-red-400 hover:text-red-300"
                                       : "text-gray-400 hover:text-white"
                                   )}
                                   size="icon"
                                 >
-                                  <ThumbsDown className={cn(
-                                    "w-4 h-4 transition-all duration-200",
-                                    dislikedMessages.has(message.id) && "animate-bounce"
-                                  )} />
+                                  <ThumbsDown
+                                    className={cn(
+                                      "w-4 h-4 transition-all duration-200",
+                                      dislikedMessages.has(message.id) &&
+                                        "animate-bounce"
+                                    )}
+                                  />
                                 </Button>
                                 <Button
                                   onClick={() =>
