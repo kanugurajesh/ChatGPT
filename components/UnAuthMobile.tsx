@@ -102,7 +102,7 @@ export function UnAuthMobile() {
               onChange={handleInputChange}
               onKeyPress={handleKeyPress}
               placeholder="Ask anything"
-              className="w-full bg-[#2f2f2f] border border-gray-600 text-white placeholder-gray-400 resize-none min-h-[60px] max-h-[200px] focus:ring-1 focus:ring-gray-500 focus:border-gray-500 text-base py-4 pl-6 pr-16 rounded-3xl"
+              className="w-full bg-[#2f2f2f] border border-gray-600 text-white placeholder-gray-400 resize-none min-h-[100px] max-h-[200px] focus:ring-1 focus:ring-gray-500 focus:border-gray-500 text-base py-4 pl-6 pr-16 rounded-3xl"
               style={{ height: "60px" }}
             />
 
@@ -122,35 +122,35 @@ export function UnAuthMobile() {
                 <ArrowUp className="w-4 h-4" />
               </Button>
             </div>
+            <div className="flex items-center justify-start gap-3 ml-4 absolute left-0 bottom-3">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="bg-transparent hover:bg-[#3A3A3A] text-gray-400 hover:text-white px-3 py-2 text-sm font-medium transition-colors flex items-center gap-2 border-[1px] border-gray-500 rounded-2xl"
+              >
+                <Paperclip className="w-4 h-4" />
+                Attach
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="bg-transparent hover:bg-[#3A3A3A] text-gray-400 hover:text-white px-3 py-2 text-sm font-medium transition-colors flex items-center gap-2 border-[1px] border-gray-500 rounded-2xl"
+              >
+                <Search className="w-4 h-4" />
+                Search
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="bg-transparent hover:bg-[#3A3A3A] text-gray-400 hover:text-white px-3 py-2 text-sm font-medium transition-colors flex items-center gap-2 border-[1px] border-gray-500 rounded-2xl"
+              >
+                <BookOpen className="w-4 h-4" />
+                Study
+              </Button>
+            </div>
           </div>
 
           {/* Action Buttons - Below input */}
-          <div className="flex items-center justify-start gap-3 ml-4">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="bg-transparent hover:bg-[#3A3A3A] text-gray-400 hover:text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
-            >
-              <Paperclip className="w-4 h-4" />
-              Attach
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="bg-transparent hover:bg-[#3A3A3A] text-gray-400 hover:text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
-            >
-              <Search className="w-4 h-4" />
-              Search
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="bg-transparent hover:bg-[#3A3A3A] text-gray-400 hover:text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
-            >
-              <BookOpen className="w-4 h-4" />
-              Study
-            </Button>
-          </div>
         </div>
       </div>
 
