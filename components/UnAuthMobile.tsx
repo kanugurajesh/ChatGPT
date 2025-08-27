@@ -6,12 +6,30 @@ import { Textarea } from "@/components/ui/textarea";
 import { ArrowUp, Paperclip, Search, BookOpen, ChevronDown } from "lucide-react";
 import { SignInButton } from "@clerk/nextjs";
 import { UnAuthFooter } from "./UnAuthFooter";
+import { useToast } from "@/components/ui/use-toast";
 
 export function UnAuthMobile() {
   const [inputValue, setInputValue] = useState("");
+  const { toast } = useToast();
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInputValue(e.target.value);
+  };
+
+  const handleSendMessage = () => {
+    if (inputValue.trim()) {
+      toast({
+        title: "Please log in",
+        description: "You need to log in to send messages.",
+      });
+    }
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
   };
 
   return (
@@ -56,6 +74,7 @@ export function UnAuthMobile() {
             <Textarea
               value={inputValue}
               onChange={handleInputChange}
+              onKeyPress={handleKeyPress}
               placeholder="Ask anything"
               className="w-full bg-[#2f2f2f] border border-gray-600 text-white placeholder-gray-400 resize-none min-h-[60px] max-h-[200px] focus:ring-1 focus:ring-gray-500 focus:border-gray-500 text-base py-4 pl-6 pr-16 rounded-3xl"
               style={{ height: "60px" }}
@@ -65,6 +84,7 @@ export function UnAuthMobile() {
             <div className="absolute right-3 bottom-3">
               <Button
                 disabled={!inputValue.trim()}
+                onClick={handleSendMessage}
                 size="icon"
                 className={`w-8 h-8 rounded-full transition-all ${
                   inputValue.trim()
