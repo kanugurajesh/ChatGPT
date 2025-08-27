@@ -400,8 +400,8 @@ export function ImageGallery({ onClose }: ImageGalleryProps) {
                       </div>
                       
                       {/* Overlay */}
-                      <div className="absolute inset-0 bg-transparent group-hover:bg-black group-hover:bg-opacity-50 transition-all duration-200 flex items-end z-10">
-                        <div className="w-full p-3 text-white opacity-0 group-hover:opacity-100 transition-opacity relative z-10">
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-end z-10">
+                        <div className="w-full p-3 text-white relative z-10">
                           <div className="flex items-center justify-between">
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium truncate">
