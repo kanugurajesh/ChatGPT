@@ -68,11 +68,6 @@ export class ChatService {
       throw createError.databaseConnection(error as Error);
     }
 
-    console.log('Creating new chat:', {
-      userId: data.userId,
-      title: data.title,
-      hasInitialMessage: !!data.initialMessage
-    });
 
     const chatId = uuidv4();
     const messages: IMessage[] = [];
@@ -90,7 +85,6 @@ export class ChatService {
         content: data.initialMessage.content,
         timestamp: new Date(),
       });
-      console.log('Added initial message:', { messageId, role: data.initialMessage.role });
     }
 
     const chat = new Chat({
@@ -105,10 +99,8 @@ export class ChatService {
         return await chat.save();
       }, 2, 500);
 
-      console.log('Chat created successfully:', { chatId, userId: data.userId, messageCount: messages.length });
       return savedChat;
     } catch (error) {
-      console.error('Failed to save chat to database:', error);
       throw createError.internal('Failed to create chat', error as Error);
     }
   }
@@ -225,12 +217,10 @@ export class ChatService {
 
     // Validate input
     if (!chatId || !role || content === undefined || content === null) {
-      console.error('Invalid addMessage data:', { chatId, role, content, metadata });
       throw new Error('Invalid message data: chatId, role, and content are required');
     }
 
     if (!['user', 'assistant', 'system'].includes(role)) {
-      console.error('Invalid role:', role);
       throw new Error('Invalid role: must be user, assistant, or system');
     }
 
@@ -243,12 +233,6 @@ export class ChatService {
       metadata,
     };
 
-    console.log('Adding message to MongoDB:', {
-      chatId,
-      role,
-      contentLength: content.length,
-      messageId: message.id
-    });
 
     const chat = await Chat.findOneAndUpdate(
       { id: chatId },
@@ -260,11 +244,9 @@ export class ChatService {
     ).exec();
 
     if (!chat) {
-      console.error('Chat not found for message addition:', chatId);
       throw new Error(`Chat with ID ${chatId} not found`);
     }
 
-    console.log('Message added successfully to chat:', chatId);
     return chat;
   }
 

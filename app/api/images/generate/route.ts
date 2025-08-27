@@ -16,32 +16,18 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { prompt, chatId, messageId } = body;
 
-    console.log('🎨 Image generation API received:', {
-      prompt: prompt?.substring(0, 50) + '...',
-      chatId: chatId,
-      messageId: messageId,
-      userId: userId,
-      hasChatId: !!chatId,
-      hasMessageId: !!messageId
-    });
 
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
       return NextResponse.json({ error: 'Prompt is required' }, { status: 400 });
     }
 
     if (!chatId) {
-      console.error('🚨 Image generation attempted without chatId:', {
-        prompt: prompt?.substring(0, 50) + '...',
-        messageId: messageId,
-        userId: userId
-      });
       return NextResponse.json({ error: 'Chat ID is required for image generation' }, { status: 400 });
     }
 
     // Initialize Google GenAI with API key
     const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
     if (!apiKey) {
-      console.error('Google Generative AI API key not found');
       return NextResponse.json({ error: 'API key not configured' }, { status: 500 });
     }
 
@@ -69,7 +55,6 @@ export async function POST(req: NextRequest) {
         }
       }
     } else {
-      console.error('Unexpected response structure:', JSON.stringify(response, null, 2));
       return NextResponse.json({ 
         error: 'Unexpected API response structure' 
       }, { status: 500 });
@@ -112,13 +97,6 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    console.log('💾 Saving GeneratedImage to database:', {
-      imageId: generatedImage.id,
-      chatId: generatedImage.chatId,
-      messageId: generatedImage.messageId,
-      userId: generatedImage.userId,
-      prompt: prompt.substring(0, 50) + '...'
-    });
 
     await generatedImage.save();
 
@@ -142,7 +120,6 @@ export async function POST(req: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Error generating image:', error);
     
     // Handle specific API errors
     if (error instanceof Error) {

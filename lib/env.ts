@@ -52,7 +52,6 @@ class EnvironmentValidator {
     // Validate NODE_ENV
     const nodeEnv = process.env.NODE_ENV as string;
     if (!['development', 'production', 'test'].includes(nodeEnv)) {
-      console.warn(`Invalid NODE_ENV: ${nodeEnv}. Defaulting to 'development'.`);
     }
 
     this.config = {
@@ -79,7 +78,6 @@ class EnvironmentValidator {
       case 'memory':
         const hasMemoryKey = !!config.MEM0_API_KEY;
         if (!hasMemoryKey) {
-          console.warn('Memory service not configured: MEM0_API_KEY environment variable is missing');
         }
         return hasMemoryKey;
       case 'auth':

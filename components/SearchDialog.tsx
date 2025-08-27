@@ -89,7 +89,6 @@ export function SearchDialog({ isOpen, onClose, onChatSelect, onNewChat }: Searc
           try {
             results = await searchChats(searchQuery)
           } catch (error) {
-            console.warn('API search failed, falling back to client-side search:', error)
           }
         }
         
@@ -103,7 +102,6 @@ export function SearchDialog({ isOpen, onClose, onChatSelect, onNewChat }: Searc
         
         setSearchResults(results)
       } catch (error) {
-        console.error('Search error:', error)
         // Fallback to client-side search
         const query = searchQuery.toLowerCase().trim()
         const fallbackResults = chatHistory.filter(chat => 

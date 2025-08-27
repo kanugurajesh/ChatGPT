@@ -167,7 +167,6 @@ export function handleApiError(error: unknown): {
   status: number;
 } {
   if (error instanceof AppError) {
-    console.error('AppError:', error.toJSON());
     return {
       error: {
         code: error.code,
@@ -179,7 +178,6 @@ export function handleApiError(error: unknown): {
   }
 
   if (error instanceof Error) {
-    console.error('Unhandled Error:', error.message, error.stack);
     return {
       error: {
         code: ErrorCode.INTERNAL_SERVER_ERROR,
@@ -189,7 +187,6 @@ export function handleApiError(error: unknown): {
     };
   }
 
-  console.error('Unknown error:', error);
   return {
     error: {
       code: ErrorCode.INTERNAL_SERVER_ERROR,

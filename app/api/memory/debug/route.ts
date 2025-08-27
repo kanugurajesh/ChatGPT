@@ -10,12 +10,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     }
 
-    console.log('Debug: Getting all memories for user:', clerkUserId);
     
     const memories = await MemoryService.getAllMemories(clerkUserId, 100);
     
-    console.log('Debug: Found memories count:', memories?.length || 0);
-    console.log('Debug: Memory details:', memories);
     
     return NextResponse.json({
       userId: clerkUserId,
@@ -23,7 +20,6 @@ export async function GET(req: NextRequest) {
       memories: memories
     });
   } catch (error) {
-    console.error('Debug: Error fetching memories:', error);
     return NextResponse.json({ error: 'Failed to fetch memories', details: error }, { status: 500 });
   }
 }

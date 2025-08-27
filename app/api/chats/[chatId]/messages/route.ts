@@ -24,13 +24,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     if (!role || content === undefined || content === null) {
-      console.error('Invalid message data:', { role, content, hasContent: !!content });
       return NextResponse.json({ error: 'Role and content are required' }, { status: 400 });
     }
 
     // Allow empty content but not undefined/null
     if (typeof content !== 'string') {
-      console.error('Content must be a string:', { content, type: typeof content });
       return NextResponse.json({ error: 'Content must be a string' }, { status: 400 });
     }
 
@@ -57,7 +55,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json(updatedChat, { status: 201 });
   } catch (error) {
-    console.error('Error adding message:', error);
     return NextResponse.json({ error: 'Failed to add message' }, { status: 500 });
   }
 }

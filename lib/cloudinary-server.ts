@@ -65,7 +65,6 @@ export async function uploadBase64Image(
       created_at: result.created_at,
     };
   } catch (error) {
-    console.error('Error uploading to Cloudinary:', error);
     throw new Error('Failed to upload image to Cloudinary');
   }
 }
@@ -105,7 +104,6 @@ export async function uploadFileBuffer(
       created_at: result.created_at,
     };
   } catch (error) {
-    console.error('Error uploading file to Cloudinary:', error);
     throw new Error('Failed to upload file to Cloudinary');
   }
 }
@@ -118,7 +116,6 @@ export async function deleteFromCloudinary(publicId: string): Promise<boolean> {
     const result = await cloudinary.uploader.destroy(publicId);
     return result.result === 'ok';
   } catch (error) {
-    console.error('Error deleting from Cloudinary:', error);
     return false;
   }
 }
@@ -149,7 +146,6 @@ export async function bulkDeleteFromCloudinary(publicIds: string[]): Promise<{
       failed.push(...result.not_found);
     }
   } catch (error) {
-    console.error('Error bulk deleting from Cloudinary:', error);
     failed.push(...publicIds);
   }
   

@@ -27,7 +27,6 @@ export async function GET(request: NextRequest) {
       count: results.length,
     });
   } catch (error) {
-    console.error('Error searching chats:', error);
     return NextResponse.json({ error: 'Failed to search chats' }, { status: 500 });
   }
 }

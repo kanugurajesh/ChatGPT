@@ -113,7 +113,6 @@ export function ImageGallery({ onClose }: ImageGalleryProps) {
         setHasMore(data.pagination.hasMore);
       }
     } catch (error) {
-      console.error('Error fetching images:', error);
     } finally {
       setLoading(false);
     }
@@ -129,7 +128,6 @@ export function ImageGallery({ onClose }: ImageGalleryProps) {
         setStats(data.stats);
       }
     } catch (error) {
-      console.error('Error fetching stats:', error);
     }
   }, [isSignedIn]);
 
@@ -208,7 +206,6 @@ export function ImageGallery({ onClose }: ImageGalleryProps) {
       fetchStats();
       setIsDeleteDialogOpen(false);
     } catch (error) {
-      console.error('Error deleting images:', error);
     }
   };
 
@@ -227,7 +224,6 @@ export function ImageGallery({ onClose }: ImageGalleryProps) {
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (error) {
-      console.error('Error downloading image:', error);
     }
   };
 

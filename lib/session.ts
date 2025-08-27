@@ -123,7 +123,6 @@ class SessionManager {
     // Cleanup if we have too many sessions (memory management)
     if (this.sessions.size > 1000) {
       const cleaned = this.cleanupExpiredSessions();
-      console.log(`Session cleanup: removed ${cleaned} expired sessions`);
     }
   }
 }

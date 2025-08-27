@@ -49,45 +49,23 @@ export class MemoryService {
 
   static async addMemory(messages: MemoryMessage[], options: MemoryAddOptions): Promise<any | null> {
     if (!this.isConfigured()) {
-      console.warn('Memory service not configured, skipping memory add', { 
-        hasApiKey: !!env.getConfig().MEM0_API_KEY,
-        userId: options.user_id 
-      });
       return null;
     }
     
     try {
       this.checkMemoryClient();
-      console.log('Adding memory to Mem0 service:', { 
-        messagesCount: messages.length,
-        userId: options.user_id,
-        metadata: options.metadata
-      });
       
       const result = await memoryClient!.add(messages, options);
       
-      console.log('Memory added successfully:', { 
-        result,
-        messagesCount: messages.length,
-        userId: options.user_id
-      });
       
       return result;
     } catch (error) {
-      console.error('Error adding memory:', {
-        error: error instanceof Error ? error.message : error,
-        stack: error instanceof Error ? error.stack : undefined,
-        messagesCount: messages.length,
-        userId: options.user_id,
-        metadata: options.metadata
-      });
       throw error;
     }
   }
 
   static async searchMemory(query: string, options: MemorySearchOptions): Promise<MemorySearchResult[]> {
     if (!this.isConfigured()) {
-      console.warn('Memory service not configured, returning empty results');
       return [];
     }
     
@@ -108,14 +86,12 @@ export class MemoryService {
           metadata: result.metadata
         }));
     } catch (error) {
-      console.error('Error searching memory:', error);
       throw error;
     }
   }
 
   static async getAllMemories(userId: string, limit = 10): Promise<MemorySearchResult[]> {
     if (!this.isConfigured()) {
-      console.warn('Memory service not configured, returning empty results');
       return [];
     }
     
@@ -136,14 +112,12 @@ export class MemoryService {
           metadata: result.metadata
         }));
     } catch (error) {
-      console.error('Error getting all memories:', error);
       throw error;
     }
   }
 
   static async deleteMemory(memoryId: string): Promise<any | null> {
     if (!this.isConfigured()) {
-      console.warn('Memory service not configured, skipping memory delete');
       return null;
     }
     
@@ -152,14 +126,12 @@ export class MemoryService {
       const result = await memoryClient!.delete(memoryId);
       return result;
     } catch (error) {
-      console.error('Error deleting memory:', error);
       throw error;
     }
   }
 
   static async deleteAllMemories(userId: string): Promise<any | null> {
     if (!this.isConfigured()) {
-      console.warn('Memory service not configured, skipping memory delete all');
       return null;
     }
     
@@ -170,7 +142,6 @@ export class MemoryService {
       });
       return result;
     } catch (error) {
-      console.error('Error deleting all memories:', error);
       throw error;
     }
   }

@@ -211,17 +211,6 @@ export function MainContent({
 
       // Load messages from activeChat into local state
       if (activeChat?.id === activeChatId && shouldLoadFromDB) {
-        console.log("Loading chat from DB:", {
-          chatId: activeChatId,
-          messageCount: activeChat.messages.length,
-          messages: activeChat.messages.map((m) => ({
-            id: m.id,
-            role: m.role,
-            hasAttachments: !!(m.attachments && m.attachments.length > 0),
-            hasGeneratedImage: !!m.metadata?.generatedImage,
-            metadata: m.metadata,
-          })),
-        });
 
         const dbMessages: Message[] = activeChat.messages.map((msg) => ({
           id: msg.id,
@@ -243,35 +232,18 @@ export function MainContent({
               publicId: msg.metadata.generatedImage.publicId,
             };
             imageCountFromMetadata++;
-            console.log("📝 Restored image from metadata:", {
-              messageId: msg.id,
-              imageUrl: msg.metadata.generatedImage.url,
-              publicId: msg.metadata.generatedImage.publicId,
-            });
           }
         });
 
         // Method 2: Query GeneratedImage collection as fallback (new robust approach)
         const loadGeneratedImagesFromAPI = async () => {
           try {
-            console.log(
-              "🔍 Querying GeneratedImage collection for chat:",
-              activeChatId
-            );
             const response = await fetch(
               `/api/images/gallery?type=generated&chatId=${activeChatId}`
             );
 
             if (response.ok) {
               const data = await response.json();
-              console.log("📊 Generated images from API:", {
-                count: data.images?.length || 0,
-                images: data.images?.map((img: any) => ({
-                  id: img.id,
-                  url: img.cloudinaryUrl,
-                  generatedAt: img.generatedAt,
-                })),
-              });
 
               // Match generated images to assistant messages by messageId
               const restoredFromAPI: {
@@ -290,14 +262,6 @@ export function MainContent({
                       url: apiImage.cloudinaryUrl,
                       publicId: apiImage.cloudinaryPublicId,
                     };
-                    console.log(
-                      "🔗 Matched API image to message by messageId:",
-                      {
-                        messageId: apiImage.messageId,
-                        imageUrl: apiImage.cloudinaryUrl,
-                        generatedAt: apiImage.generatedAt,
-                      }
-                    );
                   }
                   // Method 2: Fallback to order-based matching for legacy images (temporary)
                   else if (assistantMessages[index]) {
@@ -306,26 +270,7 @@ export function MainContent({
                       url: apiImage.cloudinaryUrl,
                       publicId: apiImage.cloudinaryPublicId,
                     };
-                    console.log(
-                      "🔄 Matched legacy image by order (temporary fix):",
-                      {
-                        messageId,
-                        imageUrl: apiImage.cloudinaryUrl,
-                        generatedAt: apiImage.generatedAt,
-                        warning:
-                          "Legacy image without messageId - should be updated",
-                      }
-                    );
                   } else {
-                    console.warn(
-                      "⚠️ Unable to match image - no messageId and no corresponding assistant message:",
-                      {
-                        imageId: apiImage.id,
-                        generatedAt: apiImage.generatedAt,
-                        chatId: apiImage.chatId,
-                        availableAssistantMessages: assistantMessages.length,
-                      }
-                    );
                   }
                 });
               }
@@ -336,17 +281,6 @@ export function MainContent({
                 ...restoredFromMetadata,
               };
 
-              console.log("✅ Chat restoration complete:", {
-                messagesLoaded: dbMessages.length,
-                imagesFromMetadata: imageCountFromMetadata,
-                imagesFromAPI: Object.keys(restoredFromAPI).length,
-                totalImagesRestored: Object.keys(combinedImages).length,
-                finalImages: Object.keys(combinedImages).map((msgId) => ({
-                  messageId: msgId,
-                  url: combinedImages[msgId].url,
-                  publicId: combinedImages[msgId].publicId,
-                })),
-              });
 
               // Validate image URLs before setting state
               const validatedImages: {
@@ -362,21 +296,9 @@ export function MainContent({
                       imageData.url.startsWith("http")
                     ) {
                       validatedImages[messageId] = imageData;
-                      console.log("✅ Image URL validated:", {
-                        messageId,
-                        url: imageData.url,
-                      });
                     } else {
-                      console.warn("⚠️ Invalid image URL detected:", {
-                        messageId,
-                        url: imageData.url,
-                      });
                     }
                   } catch (error) {
-                    console.error("❌ Error validating image:", {
-                      messageId,
-                      error,
-                    });
                   }
                 }
               );
@@ -384,13 +306,9 @@ export function MainContent({
               await Promise.allSettled(validationPromises);
               setGeneratedImages(validatedImages);
             } else {
-              console.warn(
-                "⚠️ Failed to fetch generated images from API, using metadata only"
-              );
               setGeneratedImages(restoredFromMetadata);
             }
           } catch (error) {
-            console.error("❌ Error loading generated images from API:", error);
             setGeneratedImages(restoredFromMetadata);
           }
         };
@@ -500,14 +418,6 @@ export function MainContent({
     try {
       setIsGeneratingImage(true);
 
-      console.log("🎨 Starting image generation:", {
-        prompt: prompt.trim(),
-        chatId: chatId,
-        messageId: messageId,
-        activeChatId: activeChatId, // For comparison
-        hasActiveChat: !!activeChat,
-        activeChatTitle: activeChat?.title,
-      });
 
       const response = await fetch("/api/images/generate", {
         method: "POST",
@@ -524,25 +434,10 @@ export function MainContent({
       const result = await response.json();
 
       if (!response.ok) {
-        console.error("🔥 Image generation API failed:", {
-          status: response.status,
-          statusText: response.statusText,
-          error: result.error,
-          prompt: prompt.trim(),
-          chatId: chatId,
-          messageId: messageId,
-        });
         return null;
       }
 
       if (result.success && result.imageUrl) {
-        console.log("🎨 Image generation successful:", {
-          imageUrl: result.imageUrl,
-          imageId: result.imageId,
-          messageId: messageId,
-          prompt: prompt.trim(),
-          metadata: result.metadata,
-        });
         return {
           url: result.imageUrl,
           publicId: result.cloudinaryPublicId,
@@ -550,26 +445,13 @@ export function MainContent({
         };
       }
 
-      console.warn("⚠️ Image generation response missing data:", {
-        success: result.success,
-        hasImageUrl: !!result.imageUrl,
-        result: result,
-      });
       return null;
     } catch (error) {
       // Check if it was an abort error
       if (error instanceof Error && error.name === "AbortError") {
-        console.log("Image generation was aborted by user");
         return null;
       }
 
-      console.error("💥 Critical error during image generation:", {
-        error: error instanceof Error ? error.message : error,
-        stack: error instanceof Error ? error.stack : undefined,
-        prompt: prompt.trim(),
-        chatId: chatId,
-        messageId: messageId,
-      });
       return null;
     } finally {
       setIsGeneratingImage(false);
@@ -583,7 +465,6 @@ export function MainContent({
   ) => {
     if (!content.trim() && !attachments?.length) return;
     if (!isSignedIn && !isTemporaryChat) {
-      console.error("User must be signed in to send messages");
       return;
     }
 
@@ -650,10 +531,6 @@ export function MainContent({
 
       // Check if this is an image generation request
       const isImageRequest = isImageGenerationRequest(content.trim());
-      console.log("Image generation check:", {
-        content: content.trim(),
-        isImageRequest,
-      });
 
       // Create new messages for the current conversation
       const userMessage: Message = {
@@ -740,23 +617,10 @@ export function MainContent({
 
           const backgroundSave = async () => {
             try {
-              console.log("🔄 Starting background save for image generation:", {
-                chatId: activeChatId,
-                hasActiveChat: !!activeChat,
-                imageResult: imageResult
-                  ? {
-                      url: imageResult.url,
-                      publicId: imageResult.publicId,
-                      imageId: imageResult.imageId,
-                    }
-                  : null,
-                messageContent: assistantMessage.content,
-              });
 
               // For existing chats, save the user message first
               // Note: For new chats, user message was already saved during createNewChat
               if (activeChat) {
-                console.log("💾 Saving user message for existing chat...");
                 await addMessage(
                   "user",
                   content.trim(),
@@ -764,9 +628,6 @@ export function MainContent({
                   false
                 );
               } else {
-                console.log(
-                  "💾 Skipping user message save - already saved during new chat creation"
-                );
               }
 
               // Then save the assistant response with image metadata
@@ -786,10 +647,6 @@ export function MainContent({
                   : undefined,
               };
 
-              console.log(
-                "💾 Saving assistant message with metadata:",
-                messageMetadata
-              );
 
               // Save assistant message - use direct API call if activeChat is null (new chats)
               if (activeChat) {
@@ -801,9 +658,6 @@ export function MainContent({
                 );
               } else {
                 // For new chats, use direct API call since activeChat is still null
-                console.log(
-                  "💾 Using direct API call for new chat assistant message..."
-                );
                 const response = await fetch(
                   `/api/chats/${currentChatId}/messages`,
                   {
@@ -826,18 +680,10 @@ export function MainContent({
                   );
                 }
 
-                console.log("✅ Assistant message saved via direct API call");
               }
 
-              console.log("✅ MongoDB background save completed successfully");
               return true;
             } catch (error) {
-              console.error("❌ MongoDB background save failed:", {
-                error: error instanceof Error ? error.message : error,
-                stack: error instanceof Error ? error.stack : undefined,
-                chatId: activeChatId,
-                imageResult: imageResult ? "present" : "null",
-              });
               return false;
             } finally {
               setIsSavingToMongoDB(false);
@@ -867,15 +713,7 @@ export function MainContent({
                     }
                   );
 
-                  console.log(
-                    "Memory storage task queued for image generation:",
-                    memoryTaskId
-                  );
                 } catch (memoryError) {
-                  console.error(
-                    "Failed to queue memory storage for image generation:",
-                    memoryError
-                  );
                 }
               }
 
@@ -885,7 +723,6 @@ export function MainContent({
               }
             })
             .catch((error) => {
-              console.error("Background save workflow failed:", error);
             });
         }
 
@@ -915,7 +752,6 @@ export function MainContent({
         try {
           generatedImageData = JSON.parse(generatedImageHeader);
         } catch (e) {
-          console.error("Failed to parse generated image data:", e);
         }
       }
 
@@ -949,7 +785,6 @@ export function MainContent({
             streamError instanceof Error &&
             streamError.name === "AbortError"
           ) {
-            console.log("Stream reading was aborted by user");
             break;
           }
           throw streamError;
@@ -982,10 +817,8 @@ export function MainContent({
               false
             );
 
-            console.log("MongoDB background save completed successfully");
             return true;
           } catch (error) {
-            console.error("MongoDB background save failed:", error);
             return false;
           } finally {
             setIsSavingToMongoDB(false);
@@ -1012,9 +845,7 @@ export function MainContent({
                   }
                 );
 
-                console.log("Memory storage task queued:", memoryTaskId);
               } catch (memoryError) {
-                console.error("Failed to queue memory storage:", memoryError);
               }
             }
 
@@ -1024,18 +855,15 @@ export function MainContent({
             }
           })
           .catch((error) => {
-            console.error("Background save workflow failed:", error);
           });
       }
     } catch (err) {
-      console.error("Error in chat flow:", err);
 
       // Check if it was an abort error (user clicked stop)
       if (
         err instanceof Error &&
         (err.name === "AbortError" || err.message.includes("aborted"))
       ) {
-        console.log("Request was aborted by user");
 
         // Clean up the UI state
         setIsStreaming(false);
@@ -1054,7 +882,6 @@ export function MainContent({
         err.message.includes("Failed to fetch")
       ) {
         // Network error (could be due to abort)
-        console.log("Network request failed (possibly aborted)");
         setIsStreaming(false);
         setIsSavingToMongoDB(false);
 
@@ -1080,7 +907,6 @@ export function MainContent({
               false
             );
           } catch (dbError) {
-            console.error("Failed to save error message to DB:", dbError);
           }
         }
       }
@@ -1123,16 +949,12 @@ export function MainContent({
     // Find the message to regenerate and the previous user message
     const messageIndex = messages.findIndex((msg) => msg.id === messageId);
     if (messageIndex === -1 || messages[messageIndex].role !== "assistant") {
-      console.error("Invalid message for regeneration:", messageId);
       return;
     }
 
     // Find the corresponding user message (should be the one right before)
     const userMessageIndex = messageIndex - 1;
     if (userMessageIndex < 0 || messages[userMessageIndex].role !== "user") {
-      console.error(
-        "Could not find corresponding user message for regeneration"
-      );
       return;
     }
 
@@ -1225,10 +1047,6 @@ export function MainContent({
               false
             );
           } catch (error) {
-            console.error(
-              "Failed to save regenerated image response to MongoDB:",
-              error
-            );
           } finally {
             setIsSavingToMongoDB(false);
           }
@@ -1303,10 +1121,6 @@ export function MainContent({
 
             // Background memory saving removed
           } catch (error) {
-            console.error(
-              "Failed to save regenerated response to MongoDB:",
-              error
-            );
           } finally {
             setIsSavingToMongoDB(false);
           }
@@ -1318,7 +1132,6 @@ export function MainContent({
         fetchChatHistory();
       }
     } catch (error) {
-      console.error("Error regenerating response:", error);
       // Restore original message on error
       setLocalMessages(messages);
     } finally {
@@ -1348,7 +1161,6 @@ export function MainContent({
       // Clear the feedback after 2 seconds
       setTimeout(() => setCopiedMessageId(null), 2000);
     } catch (err) {
-      console.error("Failed to copy text: ", err);
     }
   };
 
@@ -1427,14 +1239,6 @@ export function MainContent({
 
   // Debug logging for generated images
   useEffect(() => {
-    console.log("Generated images state updated:", {
-      imageCount: Object.keys(generatedImages).length,
-      images: Object.entries(generatedImages).map(([messageId, data]) => ({
-        messageId,
-        url: data.url,
-        publicId: data.publicId,
-      })),
-    });
   }, [generatedImages]);
 
   return (
@@ -1793,15 +1597,6 @@ export function MainContent({
                                                   alt={attachment.name}
                                                   className="w-full h-full object-cover"
                                                   onError={(e) => {
-                                                    console.error(
-                                                      "Failed to load attachment image:",
-                                                      {
-                                                        fileName:
-                                                          attachment.name,
-                                                        url: attachment.url,
-                                                        error: e,
-                                                      }
-                                                    );
                                                     // Replace with file icon on error
                                                     const imgElement =
                                                       e.target as HTMLImageElement;
@@ -1895,15 +1690,6 @@ export function MainContent({
                                     }}
                                     style={{ cursor: "pointer" }}
                                     onError={(e) => {
-                                      console.error(
-                                        "Failed to load generated image:",
-                                        {
-                                          messageId: message.id,
-                                          imageUrl:
-                                            generatedImages[message.id].url,
-                                          error: e,
-                                        }
-                                      );
                                       // Hide the broken image
                                       (
                                         e.target as HTMLImageElement
@@ -1939,10 +1725,6 @@ export function MainContent({
                                           document.body.removeChild(a);
                                           URL.revokeObjectURL(url);
                                         } catch (error) {
-                                          console.error(
-                                            "Failed to download image:",
-                                            error
-                                          );
                                         }
                                       }}
                                       className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"

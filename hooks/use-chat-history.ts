@@ -80,7 +80,6 @@ export function useChatHistory() {
       setHasMore(data.hasMore)
       setTotal(data.total)
     } catch (err) {
-      console.error('Error fetching chat history:', err)
       setError(err instanceof Error ? err.message : 'Failed to load chat history')
       setChatHistory([])
     } finally {
@@ -127,7 +126,6 @@ export function useChatHistory() {
       
       return newChat.id
     } catch (err) {
-      console.error('Error creating chat:', err)
       setError(err instanceof Error ? err.message : 'Failed to create chat')
       return null
     }
@@ -155,7 +153,6 @@ export function useChatHistory() {
       
       return true
     } catch (err) {
-      console.error('Error deleting chat:', err)
       setError(err instanceof Error ? err.message : 'Failed to delete chat')
       return false
     }
@@ -194,7 +191,6 @@ export function useChatHistory() {
       
       return true
     } catch (err) {
-      console.error('Error updating chat title:', err)
       setError(err instanceof Error ? err.message : 'Failed to update chat title')
       return false
     }
@@ -232,7 +228,6 @@ export function useChatHistory() {
         messageCount: chat.metadata?.totalMessages || 0,
       }))
     } catch (err) {
-      console.error('Error searching chats:', err)
       return []
     }
   }, [isSignedIn, user?.id])

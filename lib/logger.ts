@@ -64,26 +64,7 @@ class Logger {
       this.entries = this.entries.slice(-this.config.maxEntries);
     }
 
-    // Console output
-    if (this.config.enableConsole && this.shouldLog(entry.level)) {
-      const message = this.formatMessage(entry);
-      
-      switch (entry.level) {
-        case LogLevel.ERROR:
-          console.error(message);
-          if (entry.error) console.error(entry.error);
-          break;
-        case LogLevel.WARN:
-          console.warn(message);
-          break;
-        case LogLevel.INFO:
-          console.info(message);
-          break;
-        case LogLevel.DEBUG:
-          console.debug(message);
-          break;
-      }
-    }
+    // Console output disabled
   }
 
   error(message: string, error?: Error, context?: Record<string, any>): void {

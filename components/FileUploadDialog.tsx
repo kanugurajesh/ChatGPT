@@ -124,7 +124,6 @@ export function FileUploadDialog({ isOpen, onClose, onFilesSelected, chatId, mes
       setMessage("");
       onClose();
     } catch (error) {
-      console.error('Upload failed:', error);
       // Show user-friendly error
       alert(`Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {

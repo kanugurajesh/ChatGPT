@@ -51,12 +51,6 @@ class BackgroundMemorySaver {
       this.processQueue();
     }
 
-    console.log(`Memory task queued: ${taskId}`, { 
-      messagesCount: messages.length,
-      queueLength: this.queue.length,
-      processing: this.processing,
-      metadata: metadata
-    });
     
     return taskId;
   }
@@ -83,10 +77,6 @@ class BackgroundMemorySaver {
    * Process a single memory task
    */
   private async processTask(task: MemoryTask) {
-    console.log(`Processing memory task: ${task.id}`, { 
-      attempt: task.retries + 1,
-      maxRetries: this.maxRetries 
-    });
 
     this.callbacks.onStart?.(task.id);
 
@@ -103,11 +93,6 @@ class BackgroundMemorySaver {
 
       if (response.ok) {
         const result = await response.json();
-        console.log(`Memory task completed successfully: ${task.id}`, { 
-          result,
-          messagesCount: task.messages.length,
-          metadata: task.metadata
-        });
         this.callbacks.onSuccess?.(task.id);
         this.callbacks.onComplete?.(task.id, true);
       } else {
@@ -116,12 +101,10 @@ class BackgroundMemorySaver {
       }
 
     } catch (error) {
-      console.error(`Memory task failed: ${task.id}`, error);
       
       // Retry logic
       if (task.retries < this.maxRetries) {
         task.retries++;
-        console.log(`Retrying memory task: ${task.id} (attempt ${task.retries + 1})`);
         
         // Add delay before retry
         await new Promise(resolve => setTimeout(resolve, this.retryDelay * task.retries));
@@ -129,7 +112,6 @@ class BackgroundMemorySaver {
         // Re-queue the task
         this.queue.unshift(task);
       } else {
-        console.error(`Memory task failed permanently: ${task.id}`, error);
         this.callbacks.onError?.(task.id, error);
         this.callbacks.onComplete?.(task.id, false);
       }

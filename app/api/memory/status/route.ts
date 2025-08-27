@@ -12,7 +12,6 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
     }
 
-    console.log('Memory status check requested by user:', clerkUserId);
     
     // Get environment configuration status
     const envConfig = env.getConfig();
@@ -69,11 +68,9 @@ export async function GET(req: NextRequest) {
       }
     };
     
-    console.log('Memory status check results:', status);
     
     return NextResponse.json(status);
   } catch (error) {
-    console.error('Error checking memory status:', error);
     return NextResponse.json({ 
       error: 'Failed to check memory status', 
       details: error instanceof Error ? error.message : String(error)

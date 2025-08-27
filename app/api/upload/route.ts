@@ -99,7 +99,6 @@ export async function POST(req: NextRequest) {
       }
     });
   } catch (error) {
-    console.error('Upload error:', error);
     
     if (error instanceof Error) {
       if (error.message.includes('Cloudinary')) {

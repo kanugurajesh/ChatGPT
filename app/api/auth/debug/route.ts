@@ -18,7 +18,6 @@ export async function GET(req: NextRequest) {
       timestamp: new Date().toISOString()
     });
   } catch (error) {
-    console.error('Auth debug error:', error);
     return NextResponse.json({ error: 'Failed to get auth info' }, { status: 500 });
   }
 }

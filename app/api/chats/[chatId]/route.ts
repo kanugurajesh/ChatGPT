@@ -29,7 +29,6 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json(chat);
   } catch (error) {
-    console.error('Error fetching chat:', error);
     return NextResponse.json({ error: 'Failed to fetch chat' }, { status: 500 });
   }
 }
@@ -72,7 +71,6 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json(updatedChat);
   } catch (error) {
-    console.error('Error updating chat:', error);
     return NextResponse.json({ error: 'Failed to update chat' }, { status: 500 });
   }
 }
@@ -100,7 +98,6 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     return NextResponse.json({ success: true, message: 'Chat deleted successfully' });
   } catch (error) {
-    console.error('Error deleting chat:', error);
     return NextResponse.json({ error: 'Failed to delete chat' }, { status: 500 });
   }
 }

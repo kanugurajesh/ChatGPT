@@ -31,22 +31,15 @@ export function ManageMemory({ isOpen, onClose, userId }: ManageMemoryProps) {
         credentials: 'include'
       });
       
-      console.log('Memory fetch response status:', response.status);
       
       if (response.ok) {
         const data = await response.json();
-        console.log('Memory fetch data:', data);
         setMemories(Array.isArray(data) ? data : []);
       } else {
         const errorData = await response.json().catch(() => ({}));
-        console.error('Failed to fetch memories:', response.status, errorData);
-        if (response.status === 401) {
-          console.error('Authentication required to view memories');
-        }
         setMemories([]);
       }
     } catch (error) {
-      console.error('Error fetching memories:', error);
       setMemories([]);
     } finally {
       setIsLoading(false);
@@ -65,10 +58,8 @@ export function ManageMemory({ isOpen, onClose, userId }: ManageMemoryProps) {
         setMemories(prev => prev.filter(memory => memory.id !== memoryId));
       } else {
         const errorData = await response.json().catch(() => ({}));
-        console.error('Failed to delete memory:', response.status, errorData);
       }
     } catch (error) {
-      console.error('Error deleting memory:', error);
     } finally {
       setDeletingId(null);
     }
@@ -86,10 +77,8 @@ export function ManageMemory({ isOpen, onClose, userId }: ManageMemoryProps) {
         setMemories([]);
       } else {
         const errorData = await response.json().catch(() => ({}));
-        console.error('Failed to delete all memories:', response.status, errorData);
       }
     } catch (error) {
-      console.error('Error deleting all memories:', error);
     } finally {
       setDeletingAll(false);
     }

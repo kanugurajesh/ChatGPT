@@ -41,7 +41,6 @@ export function useActiveChat(initialChatId?: string) {
   const loadChat = useCallback(async (chatId: string) => {
     // Skip loading for temporary chats (they don't exist in database)
     if (chatId.startsWith('temp-')) {
-      console.log('Skipping database load for temporary chat:', chatId)
       return
     }
     
@@ -85,7 +84,6 @@ export function useActiveChat(initialChatId?: string) {
       
       setActiveChat(formattedChat)
     } catch (err) {
-      console.error('Error loading chat:', err)
       setError(err instanceof Error ? err.message : 'Failed to load chat')
       setActiveChat(null)
     } finally {
@@ -143,7 +141,6 @@ export function useActiveChat(initialChatId?: string) {
       setActiveChat(formattedChat)
       return newChat.id
     } catch (err) {
-      console.error('Error creating chat:', err)
       setError(err instanceof Error ? err.message : 'Failed to create chat')
       return null
     } finally {
@@ -165,7 +162,6 @@ export function useActiveChat(initialChatId?: string) {
     
     // Skip database operations for temporary chats
     if (activeChat.id.startsWith('temp-')) {
-      console.log('Skipping database save for temporary chat message')
       return true // Return success for temporary chats
     }
     
@@ -197,12 +193,6 @@ export function useActiveChat(initialChatId?: string) {
     setError(null)
 
     try {
-      console.log('Adding message to chat:', {
-        chatId: activeChat.id,
-        role,
-        contentLength: content?.length || 0,
-        hasMetadata: !!metadata
-      });
 
       const response = await fetch(`/api/chats/${activeChat.id}/messages`, {
         method: 'POST',
@@ -219,11 +209,6 @@ export function useActiveChat(initialChatId?: string) {
 
       if (!response.ok) {
         const errorData = await response.text();
-        console.error('Message save failed:', {
-          status: response.status,
-          statusText: response.statusText,
-          error: errorData
-        });
         throw new Error(`Failed to save message: ${response.status} - ${errorData}`)
       }
 
@@ -248,7 +233,6 @@ export function useActiveChat(initialChatId?: string) {
       setActiveChat(formattedChat)
       return true
     } catch (err) {
-      console.error('Error saving message:', err)
       setError(err instanceof Error ? err.message : 'Failed to save message')
       
       // Remove optimistic update on error
@@ -307,7 +291,6 @@ export function useActiveChat(initialChatId?: string) {
       
       return true
     } catch (err) {
-      console.error('Error updating title:', err)
       setError(err instanceof Error ? err.message : 'Failed to update title')
       
       // Revert optimistic update

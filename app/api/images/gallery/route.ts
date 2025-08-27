@@ -125,7 +125,6 @@ export async function GET(req: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Error fetching gallery images:', error);
     return NextResponse.json({ 
       error: 'Failed to fetch images',
       details: error instanceof Error ? error.message : 'Unknown error'
@@ -227,7 +226,6 @@ export async function DELETE(req: NextRequest) {
     });
 
   } catch (error) {
-    console.error('Error deleting gallery images:', error);
     return NextResponse.json({ 
       error: 'Failed to delete images',
       details: error instanceof Error ? error.message : 'Unknown error'
