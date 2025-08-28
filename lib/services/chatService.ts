@@ -139,10 +139,26 @@ export class ChatService {
   static async getChatById(chatId: string, userId: string): Promise<IChat | null> {
     await connectDB();
     
-    return await Chat.findOne({ 
+    // Find the chat first
+    const chat = await Chat.findOne({ 
       id: chatId, 
       userId 
     }).exec();
+    
+    if (!chat) {
+      return null;
+    }
+    
+    // Sort messages by timestamp manually to ensure compatibility
+    if (chat.messages && chat.messages.length > 0) {
+      chat.messages.sort((a: any, b: any) => {
+        const timeA = new Date(a.timestamp).getTime();
+        const timeB = new Date(b.timestamp).getTime();
+        return timeA - timeB;
+      });
+    }
+    
+    return chat;
   }
 
   /**
@@ -299,7 +315,7 @@ export class ChatService {
         throw new Error(`Chat with ID ${chatId} not found`);
       }
 
-      const existingMessage = existingChat.messages.find(msg => msg.id === messageId);
+      const existingMessage = existingChat.messages.find((msg: any) => msg.id === messageId);
       
       if (!existingMessage) {
         throw new Error(`Message with ID ${messageId} not found in chat ${chatId}`);
@@ -360,13 +376,13 @@ export class ChatService {
 
 
       console.log(`Searching for message ID: ${messageId}`);
-      console.log(`Available message IDs in chat:`, existingChat.messages.map(m => ({ id: m.id, role: m.role })));
+      console.log(`Available message IDs in chat:`, existingChat.messages.map((m: any) => ({ id: m.id, role: m.role })));
       
-      const messageIndex = existingChat.messages.findIndex(msg => msg.id === messageId);
+      const messageIndex = existingChat.messages.findIndex((msg: any) => msg.id === messageId);
       console.log(`Message found at index: ${messageIndex}`);
       
       if (messageIndex === -1) {
-        throw new Error(`Message with ID ${messageId} not found in chat ${chatId}. Available IDs: ${existingChat.messages.map(m => m.id).join(', ')}`);
+        throw new Error(`Message with ID ${messageId} not found in chat ${chatId}. Available IDs: ${existingChat.messages.map((m: any) => m.id).join(', ')}`);
       }
 
       const existingMessage = existingChat.messages[messageIndex];
@@ -382,7 +398,7 @@ export class ChatService {
 
       // Capture messages that will be removed (for returning to frontend)
       const removedMessages = existingChat.messages.slice(messageIndex + 1);
-      const assistantMessageToReplace = removedMessages.find(msg => msg.role === 'assistant') || null;
+      const assistantMessageToReplace = removedMessages.find((msg: any) => msg.role === 'assistant') || null;
       console.log(`Found ${removedMessages.length} messages to remove`);
       if (assistantMessageToReplace) {
         console.log(`Assistant message to replace: ${assistantMessageToReplace.id}`);
@@ -416,7 +432,7 @@ export class ChatService {
       };
 
       console.log(`About to save message with content: "${updatedMessages[messageIndex].content}"`);
-      console.log(`Updated messages array:`, updatedMessages.map(m => ({ id: m.id, role: m.role, content: m.content })));
+      console.log(`Updated messages array:`, updatedMessages.map((m: IMessage) => ({ id: m.id, role: m.role, content: m.content })));
 
       // Update the entire chat with the truncated messages array
       const chat = await Chat.findOneAndUpdate(
@@ -428,7 +444,7 @@ export class ChatService {
         { new: true }
       ).exec();
 
-      console.log(`After update - returned chat messages:`, chat?.messages.map(m => ({ id: m.id, role: m.role, content: m.content })));
+      console.log(`After update - returned chat messages:`, chat?.messages.map((m: IMessage) => ({ id: m.id, role: m.role, content: m.content })));
 
       if (!chat) {
         throw new Error(`Failed to update chat ${chatId}`);
@@ -466,7 +482,7 @@ export class ChatService {
         throw new Error(`Chat with ID ${chatId} not found`);
       }
 
-      const messageIndex = existingChat.messages.findIndex(msg => msg.id === messageId);
+      const messageIndex = existingChat.messages.findIndex((msg: IMessage) => msg.id === messageId);
       
       if (messageIndex !== -1) {
         // Update existing assistant message

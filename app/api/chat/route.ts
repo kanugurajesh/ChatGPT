@@ -295,10 +295,44 @@ Please use this context to provide more personalized and contextual responses wh
 
     // Note: Memory storage is now handled client-side after conversation completes
 
-    // Return streaming response
-    return new Response(textStream, {
+    // Convert textStream to Server-Sent Events format for frontend
+    const encoder = new TextEncoder();
+    const transformedStream = new ReadableStream({
+      start(controller) {
+        const reader = textStream.getReader();
+        
+        const pump = async () => {
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              
+              if (done) {
+                // Send completion signal
+                controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+                controller.close();
+                break;
+              }
+              
+              // Transform plain text chunk to SSE JSON format
+              const jsonData = JSON.stringify({ content: value });
+              const sseData = `data: ${jsonData}\n\n`;
+              controller.enqueue(encoder.encode(sseData));
+            }
+          } catch (error) {
+            controller.error(error);
+          }
+        };
+        
+        pump();
+      },
+    });
+
+    // Return streaming response in SSE format
+    return new Response(transformedStream, {
       headers: {
-        'Content-Type': 'text/plain; charset=utf-8',
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
       },
     });
 

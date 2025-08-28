@@ -67,20 +67,49 @@ export function useActiveChat(initialChatId?: string) {
 
       const chatData = await response.json()
       
+      // Debug: Log the raw chat data
+      console.log('Raw chat data from API:', {
+        id: chatData.id,
+        title: chatData.title,
+        messageCount: chatData.messages?.length || 0,
+        messages: chatData.messages?.map((msg: any, index: number) => ({
+          index,
+          id: msg.id,
+          role: msg.role,
+          content: msg.content.substring(0, 100) + (msg.content.length > 100 ? '...' : ''),
+          timestamp: msg.timestamp
+        })) || []
+      });
+      
       const formattedChat: ActiveChat = {
         id: chatData.id,
         title: chatData.title,
-        messages: chatData.messages.map((msg: any) => ({
-          id: msg.id,
-          role: msg.role,
-          content: msg.content,
-          timestamp: new Date(msg.timestamp),
-          attachments: msg.attachments || [],
-          metadata: msg.metadata,
-        })),
+        messages: chatData.messages
+          .map((msg: any) => ({
+            id: msg.id,
+            role: msg.role,
+            content: msg.content,
+            timestamp: new Date(msg.timestamp),
+            attachments: msg.attachments || [],
+            metadata: msg.metadata,
+          }))
+          .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime()),
         createdAt: new Date(chatData.createdAt),
         updatedAt: new Date(chatData.updatedAt),
       }
+      
+      // Debug: Log the formatted chat
+      console.log('Formatted chat:', {
+        id: formattedChat.id,
+        messageCount: formattedChat.messages.length,
+        messages: formattedChat.messages.map((msg, index) => ({
+          index,
+          id: msg.id,
+          role: msg.role,
+          content: msg.content.substring(0, 100) + (msg.content.length > 100 ? '...' : ''),
+          timestamp: msg.timestamp.toISOString()
+        }))
+      });
       
       setActiveChat(formattedChat)
     } catch (err) {
@@ -241,7 +270,7 @@ export function useActiveChat(initialChatId?: string) {
       if (optimistic) {
         setActiveChat(prev => prev ? {
           ...prev,
-          messages: prev.messages.filter(msg => msg.id !== tempId),
+          messages: prev.messages.filter(msg => msg.id !== finalMessageId),
         } : null)
       }
       

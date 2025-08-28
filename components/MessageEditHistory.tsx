@@ -27,8 +27,8 @@ export function MessageEditHistory({ editHistory, className }: MessageEditHistor
     const date = timestamp instanceof Date ? timestamp : new Date(timestamp);
     
     try {
-      if (typeof Intl !== 'undefined' && Intl.RelativeTimeFormatter) {
-        return new Intl.RelativeTimeFormatter('en', { numeric: 'auto' }).format(
+      if (typeof Intl !== 'undefined' && Intl.RelativeTimeFormat) {
+        return new Intl.RelativeTimeFormat('en', { numeric: 'auto' }).format(
           Math.floor((date.getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
           'day'
         );

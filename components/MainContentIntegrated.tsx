@@ -1,43 +1,19 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Mic,
-  ArrowUp,
-  Copy,
-  RefreshCw,
-  Edit3,
-  Plus,
-  ThumbsUp,
-  ThumbsDown,
-  Share,
-  Download,
-  FileText,
-  Square,
-} from "lucide-react";
+import React, { useState, useRef, useEffect } from "react";
 import { cn } from "@/lib/utils";
 import { ChatHeader } from "./ChatHeader";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { FileUploadDialog } from "./FileUploadDialog";
+import { MobileHeader } from "./MobileHeader";
+import { ChatArea } from "./ChatArea";
+import { ImageView } from "./ImageView";
 import { useResponsive } from "@/hooks/use-responsive";
 import { sessionManager } from "@/lib/session";
 import { useUser } from "@clerk/nextjs";
 import { useActiveChat } from "@/hooks/use-active-chat";
 import { useChatHistory } from "@/hooks/use-chat-history";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github-dark.css";
 import { backgroundMemorySaver } from "@/lib/services/backgroundSaver";
-import { ImageSkeleton } from "./ui/image-skeleton";
-import { MessageEditHistory } from "./MessageEditHistory";
 
 interface FileAttachment {
   type: "file";
@@ -59,6 +35,7 @@ interface Message {
     tokens?: number;
     imageGenerated?: boolean;
     regenerated?: boolean;
+    isStreaming?: boolean;
     editHistory?: Array<{
       content: string;
       timestamp: Date;
@@ -98,32 +75,29 @@ const isImageGenerationRequest = (text: string): boolean => {
     /create.*photo/,
     /draw.*photo/,
     /make.*photo/,
+    /generate.*art/,
+    /create.*art/,
+    /draw.*art/,
+    /make.*art/,
     /generate.*illustration/,
     /create.*illustration/,
     /draw.*illustration/,
-    /paint.*something/,
-    /sketch.*something/,
-    /render.*something/,
-    /visualize.*something/,
-    /show me.*image/,
-    /create.*art/,
-    /generate.*art/,
-    /make.*art/,
-    /draw.*art/,
+    /make.*illustration/,
+    /generate.*graphic/,
+    /create.*graphic/,
+    /design.*logo/,
+    /create.*logo/,
   ];
 
-  // Also check for simple keywords that commonly indicate image requests
+  // Also check for simple keywords that might indicate image generation
   const simpleKeywords = ["paint", "sketch", "render", "visualize", "design"];
 
-  // Check patterns first
   const hasImagePattern = imagePatterns.some((pattern) =>
     pattern.test(lowerText)
   );
 
-  // Check simple keywords (but only if they seem to be the main action)
   const hasSimpleKeyword = simpleKeywords.some(
-    (keyword) =>
-      lowerText.startsWith(keyword) || lowerText.includes(` ${keyword} `)
+    (keyword) => lowerText.includes(keyword) && lowerText.includes("for me")
   );
 
   return hasImagePattern || hasSimpleKeyword;
@@ -164,8 +138,9 @@ export function MainContent({
   const [dislikedMessages, setDislikedMessages] = useState<Set<string>>(
     new Set()
   );
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [failedMessageIds, setFailedMessageIds] = useState<Set<string>>(new Set());
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { isMobile, useOverlayNav } = useResponsive();
   const { user, isSignedIn, isLoaded } = useUser();
 
@@ -180,1005 +155,550 @@ export function MainContent({
     loadChat,
     clearActiveChat,
   } = useActiveChat(activeChatId);
+
   const { fetchChatHistory } = useChatHistory();
 
-  // Persistent message state - prioritizes local state over DB
+  // Derive messages from active chat
   const [localMessages, setLocalMessages] = useState<Message[]>([]);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [shouldLoadFromDB, setShouldLoadFromDB] = useState(true);
+  const [pendingMessages, setPendingMessages] = useState<Message[]>([]); // For optimistic updates
 
-  // Use local messages as the source of truth, only fall back to DB when needed
-  const messages: Message[] =
-    localMessages.length > 0 || !shouldLoadFromDB || isTemporaryChat
-      ? localMessages
-      : activeChat?.messages.map((msg) => ({
-          id: msg.id,
-          content: msg.content,
-          role: msg.role,
-          timestamp: msg.timestamp,
-          metadata: msg.metadata || {},
-        })) || [];
+  // Local streaming state
+  const [isStreamingLocal, setIsStreamingLocal] = useState(false);
+  const [streamingMessage, setStreamingMessage] = useState<Message | null>(null);
+  
+  // Track pending messages for newly created chats
+  const [pendingUserMessage, setPendingUserMessage] = useState<Message | null>(null);
+  const [pendingAssistantMessage, setPendingAssistantMessage] = useState<Message | null>(null);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  // Combine database messages, local messages, and streaming message
+  const messages: Message[] = React.useMemo(() => {
+    // Start with database messages from activeChat
+    const dbMessages: Message[] = activeChat?.messages?.map((msg) => ({
+      id: msg.id,
+      content: msg.content,
+      role: msg.role as "user" | "assistant" | "system",
+      timestamp: new Date(msg.timestamp),
+      attachments: msg.attachments?.map((att) => ({
+        type: "file" as const,
+        mediaType: att.mediaType,
+        url: att.url,
+        name: att.name,
+        size: att.size,
+      })),
+      metadata: {
+        model: msg.metadata?.model,
+        tokens: msg.metadata?.tokens,
+        imageGenerated: msg.metadata?.imageGenerated,
+        regenerated: msg.metadata?.regenerated,
+        editHistory: msg.metadata?.editHistory?.map((edit: any) => ({
+          content: edit.content,
+          timestamp: new Date(edit.timestamp),
+        })),
+      },
+    })) || [];
 
-  // Load from DB when active chat changes or when there are no local messages
-  useEffect(() => {
-    if (activeChatId) {
-      // Skip entire effect for temporary chats to avoid state interference
-      if (activeChatId.startsWith("temp-")) {
-        return;
+    // Add local messages (for temporary chats or before DB sync)
+    const allMessages = [...dbMessages, ...localMessages, ...pendingMessages];
+    
+    // Add streaming message if it exists
+    if (streamingMessage) {
+      allMessages.push(streamingMessage);
+    }
+    
+    // Remove duplicates by ID (database messages take precedence)
+    const uniqueMessages = allMessages.reduce((acc, msg) => {
+      const existing = acc.find(m => m.id === msg.id);
+      if (!existing) {
+        acc.push(msg);
       }
+      return acc;
+    }, [] as Message[]);
+    
+    // Sort by timestamp to maintain proper order
+    const sortedMessages = uniqueMessages.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+    
+    // Debug: Log final messages that will be rendered
+    console.log('Final messages for rendering:', {
+      activeChatId: activeChat?.id,
+      totalMessages: sortedMessages.length,
+      messages: sortedMessages.map((msg, index) => ({
+        index,
+        id: msg.id,
+        role: msg.role,
+        content: msg.content.substring(0, 100) + (msg.content.length > 100 ? '...' : ''),
+        timestamp: msg.timestamp.toISOString()
+      }))
+    });
+    
+    return sortedMessages;
+  }, [activeChat?.messages, localMessages, pendingMessages, streamingMessage]);
 
-      // Always load the chat when activeChatId changes
-      if (!activeChat || activeChat.id !== activeChatId) {
-        // This is a persistent chat, disable temporary mode
-        setIsTemporaryChat(false);
-        // Reset local state when switching chats
-        setLocalMessages([]);
-        setShouldLoadFromDB(true);
-        // Load from database
-        loadChat(activeChatId);
+  // Handle pending messages when activeChat becomes available after creation
+  useEffect(() => {
+    const handlePendingMessages = async () => {
+      if (activeChat && !isTemporaryChat) {
+        // Save pending user message
+        if (pendingUserMessage) {
+          console.log('Saving pending user message to newly created chat');
+          const success = await addMessage(
+            pendingUserMessage.role,
+            pendingUserMessage.content,
+            { 
+              attachments: pendingUserMessage.attachments,
+              timestamp: pendingUserMessage.timestamp.toISOString()
+            },
+            false,
+            pendingUserMessage.id
+          );
+          
+          if (success) {
+            setPendingUserMessage(null);
+            // Remove from local messages if it was added there
+            setLocalMessages(prev => prev.filter(m => m.id !== pendingUserMessage.id));
+          }
+        }
+        
+        // Save pending assistant message
+        if (pendingAssistantMessage) {
+          console.log('Saving pending assistant message to newly created chat');
+          const success = await addMessage(
+            pendingAssistantMessage.role,
+            pendingAssistantMessage.content,
+            pendingAssistantMessage.metadata,
+            false,
+            pendingAssistantMessage.id
+          );
+          
+          if (success) {
+            setPendingAssistantMessage(null);
+            // Remove from local messages if it was added there
+            setLocalMessages(prev => prev.filter(m => m.id !== pendingAssistantMessage.id));
+          }
+        }
       }
+    };
+    
+    handlePendingMessages();
+  }, [activeChat?.id, isTemporaryChat, pendingUserMessage, pendingAssistantMessage, addMessage]);
 
-      // Load messages from activeChat into local state
-      if (activeChat?.id === activeChatId && shouldLoadFromDB) {
+  // Handle file selection from dialog
+  const handleFilesSelected = async (files: File[]) => {
+    try {
+      setIsFileDialogOpen(false);
 
-        const dbMessages: Message[] = activeChat.messages.map((msg) => ({
-          id: msg.id,
-          content: msg.content,
-          role: msg.role,
-          timestamp: msg.timestamp,
-          attachments: msg.attachments || [], // Provide default empty array
-          metadata: msg.metadata || {}, // Include metadata for edit history
-        }));
-
-        // Debug logging to check message content
-        console.log('Loading messages from database:', {
-          chatId: activeChatId,
-          totalMessages: dbMessages.length,
-          userMessages: dbMessages.filter(m => m.role === 'user').length,
-          assistantMessages: dbMessages.filter(m => m.role === 'assistant').length,
-          assistantContents: dbMessages.filter(m => m.role === 'assistant').map(m => ({
-            id: m.id,
-            content: m.content,
-            hasContent: !!m.content?.trim()
-          }))
-        });
-
-        // Method 1: Restore generated images from message metadata (existing approach)
-        const restoredFromMetadata: {
-          [messageId: string]: { url: string; publicId: string };
-        } = {};
-        let imageCountFromMetadata = 0;
-        activeChat.messages.forEach((msg) => {
-          if (msg.metadata?.generatedImage && msg.metadata.generatedImage.url) {
-            restoredFromMetadata[msg.id] = {
-              url: msg.metadata.generatedImage.url,
-              publicId: msg.metadata.generatedImage.publicId,
+      // Convert files to base64 for now - in production, you'd upload to cloud storage
+      const attachments: FileAttachment[] = await Promise.all(
+        files.map(async (file) => {
+          return new Promise<FileAttachment>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              resolve({
+                type: "file",
+                mediaType: file.type,
+                url: reader.result as string, // This would be a cloud storage URL in production
+                name: file.name,
+                size: file.size,
+              });
             };
-            imageCountFromMetadata++;
-          }
-        });
+            reader.readAsDataURL(file);
+          });
+        })
+      );
 
-        // Method 2: Query GeneratedImage collection as fallback (new robust approach)
-        const loadGeneratedImagesFromAPI = async () => {
-          try {
-            const response = await fetch(
-              `/api/images/gallery?type=generated&chatId=${activeChatId}`
-            );
-
-            if (response.ok) {
-              const data = await response.json();
-
-              // Match generated images to assistant messages by messageId
-              const restoredFromAPI: {
-                [messageId: string]: { url: string; publicId: string };
-              } = {};
-
-              if (data.images && data.images.length > 0) {
-                const assistantMessages = activeChat.messages.filter(
-                  (m) => m.role === "assistant"
-                );
-
-                data.images.forEach((apiImage: any, index: number) => {
-                  // Method 1: Match by messageId if available (for new images)
-                  if (apiImage.messageId) {
-                    restoredFromAPI[apiImage.messageId] = {
-                      url: apiImage.cloudinaryUrl,
-                      publicId: apiImage.cloudinaryPublicId,
-                    };
-                  }
-                  // Method 2: Fallback to order-based matching for legacy images (temporary)
-                  else if (assistantMessages[index]) {
-                    const messageId = assistantMessages[index].id;
-                    restoredFromAPI[messageId] = {
-                      url: apiImage.cloudinaryUrl,
-                      publicId: apiImage.cloudinaryPublicId,
-                    };
-                  } else {
-                  }
-                });
-              }
-
-              // Combine both methods - metadata takes precedence, API as fallback
-              const combinedImages = {
-                ...restoredFromAPI,
-                ...restoredFromMetadata,
-              };
-
-
-              // Validate image URLs before setting state
-              const validatedImages: {
-                [messageId: string]: { url: string; publicId: string };
-              } = {};
-              const validationPromises = Object.entries(combinedImages).map(
-                async ([messageId, imageData]) => {
-                  try {
-                    // Quick validation - just check if URL is a valid string and has expected format
-                    if (
-                      imageData.url &&
-                      typeof imageData.url === "string" &&
-                      imageData.url.startsWith("http")
-                    ) {
-                      validatedImages[messageId] = imageData;
-                    } else {
-                    }
-                  } catch (error) {
-                  }
-                }
-              );
-
-              await Promise.allSettled(validationPromises);
-              setGeneratedImages(validatedImages);
-            } else {
-              setGeneratedImages(restoredFromMetadata);
-            }
-          } catch (error) {
-            setGeneratedImages(restoredFromMetadata);
-          }
-        };
-
-        setLocalMessages(dbMessages);
-        setShouldLoadFromDB(false);
-
-        // Load generated images (async, won't block UI)
-        loadGeneratedImagesFromAPI();
+      // If there's text in the input, send the message with attachments
+      if (inputValue.trim()) {
+        await handleSendMessage(inputValue, attachments);
+        setInputValue("");
+      } else {
+        // Just show the attachments in the input for now
+        // In a real implementation, you might want to show a preview
+        console.log("Files selected:", attachments);
       }
-    } else {
-      // Reset for new chat - clear everything
-      clearActiveChat();
-      setInputValue("");
-      setIsLoading(false);
-      setEditingMessageId(null);
-      setEditContent("");
-      setIsStreaming(false);
-      setLocalMessages([]);
-      setShouldLoadFromDB(true);
-      setIsSavingToMongoDB(false);
-      setGeneratedImages({});
-      setIsGeneratingImage(false);
-      setGeneratingImageMessageIds(new Set());
+    } catch (error) {
+      console.error("Error handling file selection:", error);
     }
-  }, [activeChatId, activeChat, shouldLoadFromDB, clearActiveChat]);
+  };
 
-  useEffect(() => {
-    // Initialize user ID - use Clerk user ID if authenticated, otherwise session ID
-    if (isLoaded) {
-      if (isSignedIn && user?.id) {
-        setUserId(user.id);
-      } else if (typeof window !== "undefined") {
-        const sessionId = sessionManager.getOrCreateSession();
-        setUserId(sessionId);
-      }
-    }
-  }, [user, isSignedIn, isLoaded]);
+  // Streaming states
+  const [streamingContent, setStreamingContent] = useState("");
+  const [currentStreamingId, setCurrentStreamingId] = useState<string | null>(
+    null
+  );
 
-  // Handle stopping the current request
+  // Handle stop generation
   const handleStopGeneration = () => {
     if (abortController) {
       abortController.abort();
       setAbortController(null);
       setIsLoading(false);
-      setIsStreaming(false);
       setIsGeneratingImage(false);
       setGeneratingImageMessageIds(new Set());
+
+      // Clean up streaming state
+      setStreamingContent("");
+      setCurrentStreamingId(null);
+      setIsStreamingLocal(false);
     }
   };
 
-  // Handle file uploads
-  const handleFilesSelected = async (
-    attachments: FileAttachment[],
-    messageText?: string
-  ) => {
-    let content = messageText;
-
-    if (!content) {
-      // Auto-generate prompt based on file types
-      const imageFiles = attachments.filter((f) =>
-        f.mediaType.startsWith("image/")
-      );
-      const documentFiles = attachments.filter(
-        (f) =>
-          f.mediaType === "application/pdf" ||
-          f.mediaType.includes("text") ||
-          f.mediaType.includes("document")
-      );
-      const otherFiles = attachments.filter(
-        (f) => !f.mediaType.startsWith("image/") && !documentFiles.includes(f)
-      );
-
-      if (
-        imageFiles.length > 0 &&
-        documentFiles.length === 0 &&
-        otherFiles.length === 0
-      ) {
-        content =
-          imageFiles.length === 1
-            ? "What do you see in this image? Please describe it in detail."
-            : "What do you see in these images? Please describe each one.";
-      } else if (
-        documentFiles.length > 0 &&
-        imageFiles.length === 0 &&
-        otherFiles.length === 0
-      ) {
-        content =
-          documentFiles.length === 1
-            ? "Please analyze this document and tell me what it contains. Summarize the key points."
-            : "Please analyze these documents and tell me what they contain. Summarize the key points from each.";
-      } else {
-        content =
-          "Please analyze these files and tell me what they contain. Provide insights about each file.";
-      }
-    }
-
-    await handleSendMessage(content, attachments);
-  };
-
-  // Image generation function
-  const handleImageGeneration = async (
+  // Image generation helper
+  const generateImageWithFlux = async (
     prompt: string,
-    chatId: string,
-    messageId?: string
-  ): Promise<{ url: string; publicId: string; imageId: string } | null> => {
+    messageId: string
+  ): Promise<string> => {
     try {
-      setIsGeneratingImage(true);
-
-
-      const response = await fetch("/api/images/generate", {
+      const response = await fetch("/api/generate-image", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: prompt.trim(),
-          chatId: chatId, // Use the passed chatId parameter
-          messageId: messageId,
-          isTemporaryChat: isTemporaryChat,
-        }),
-        signal: abortController?.signal,
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ prompt }),
       });
-
-      const result = await response.json();
 
       if (!response.ok) {
-        return null;
+        throw new Error("Failed to generate image");
       }
 
-      if (result.success && result.imageUrl) {
-        return {
-          url: result.imageUrl,
-          publicId: result.cloudinaryPublicId,
-          imageId: result.imageId,
-        };
-      }
+      const { imageUrl, publicId } = await response.json();
 
-      return null;
-    } catch (error) {
-      // Check if it was an abort error
-      if (error instanceof Error && error.name === "AbortError") {
-        return null;
-      }
-
-      return null;
-    } finally {
-      setIsGeneratingImage(false);
-    }
-  };
-
-  // Streaming API call with conditional persistence
-  // Helper function to regenerate response from existing messages
-  const regenerateResponseFromMessages = async (contextMessages: Message[], assistantToReplace: Message | null = null) => {
-    try {
-      setIsLoading(true);
-      setIsStreaming(true);
-
-      // Get context for API call
-      const apiMessages = contextMessages.slice(-MAX_CONTEXT).map((m) => ({
-        role: m.role,
-        content: m.content,
+      // Store the generated image with its public ID
+      setGeneratedImages((prev) => ({
+        ...prev,
+        [messageId]: { url: imageUrl, publicId },
       }));
-      
-      console.log('Sending to AI - Context messages:', apiMessages);
-      console.log('AI will see user message:', apiMessages.filter(m => m.role === 'user').pop()?.content);
 
-      // Use existing assistant message ID if replacing, otherwise create new
-      const assistantId = assistantToReplace ? assistantToReplace.id : crypto.randomUUID();
-      const assistantMessage: Message = {
-        id: assistantId,
-        content: "",
-        role: "assistant",
-        timestamp: assistantToReplace ? assistantToReplace.timestamp : new Date(),
-      };
-
-      console.log(`Using assistant ID: ${assistantId}, replacing: ${assistantToReplace ? 'Yes' : 'No'}`);
-      if (assistantToReplace) {
-        console.log(`Replacing assistant message: ${assistantToReplace.id}`);
-      }
-
-      // Add assistant message to local state
-      const updatedMessages = [...contextMessages, assistantMessage];
-      setLocalMessages(updatedMessages);
-
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: apiMessages,
-          userId: isTemporaryChat ? "anonymous" : user?.id || userId,
-          chatId: activeChatId,
-          isTemporaryChat: isTemporaryChat,
-        }),
-      });
-
-      if (!response.body) throw new Error("No response body");
-
-      const reader = response.body.getReader();
-      let streamingText = "";
-
-      // Stream the response
-      while (true) {
-        try {
-          const { value, done } = await reader.read();
-          if (done) break;
-          const chunk = new TextDecoder().decode(value);
-          streamingText += chunk;
-
-          // Update the assistant message content in real-time
-          setLocalMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === assistantId ? { ...msg, content: streamingText } : msg
-            )
-          );
-        } catch (streamError) {
-          if (streamError instanceof Error && streamError.name === "AbortError") {
-            break;
-          }
-          throw streamError;
-        }
-      }
-
-      // End streaming mode
-      setIsStreaming(false);
-
-      // Save to MongoDB in background
-      if (streamingText.trim() && !isTemporaryChat && activeChatId) {
-        setIsSavingToMongoDB(true);
-        try {
-          if (assistantToReplace) {
-            // Update existing assistant message using its original ID
-            const response = await fetch(`/api/chats/${activeChatId}/messages/assistant`, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                messageId: assistantId,
-                content: streamingText.trim(),
-                metadata: {
-                  model: selectedModel,
-                  tokens: streamingText.length,
-                  regenerated: true,
-                  originalMessageId: assistantToReplace.id,
-                }
-              })
-            });
-            
-            if (!response.ok) {
-              console.error('Failed to update assistant message, falling back to create new');
-              // Fallback to creating new message if update fails
-              await addMessage(
-                "assistant",
-                streamingText.trim(),
-                {
-                  model: selectedModel,
-                  tokens: streamingText.length,
-                  regenerated: true,
-                },
-                false,
-                assistantId
-              );
-            }
-          } else {
-            // Create new assistant message
-            await addMessage(
-              "assistant",
-              streamingText.trim(),
-              {
-                model: selectedModel,
-                tokens: streamingText.length,
-                regenerated: true,
-              },
-              false,
-              assistantId
-            );
-          }
-          
-          // Refresh chat history
-          fetchChatHistory();
-        } catch (error) {
-          console.error('Failed to save regenerated response:', error);
-        } finally {
-          setIsSavingToMongoDB(false);
-        }
-      }
+      return imageUrl;
     } catch (error) {
-      console.error('Failed to regenerate response:', error);
-      setIsStreaming(false);
-    } finally {
-      setIsLoading(false);
+      console.error("Error generating image:", error);
+      throw error;
     }
   };
 
+  // Enhanced message sending with proper database integration
   const handleSendMessage = async (
-    content: string = inputValue,
-    attachments?: FileAttachment[]
+    content?: string,
+    attachments: FileAttachment[] = []
   ) => {
-    if (!content.trim() && !attachments?.length) return;
-    if (!isSignedIn && !isTemporaryChat) {
-      return;
-    }
-
-    // Create new AbortController for this request
-    const controller = new AbortController();
-    setAbortController(controller);
-
-    setIsLoading(true);
-    setInputValue("");
+    const messageContent = content?.trim() || inputValue.trim();
+    if (!messageContent && attachments.length === 0) return;
 
     try {
-      let currentChatId = activeChatId;
+      const currentUserId = user?.id || userId;
+      setIsLoading(true);
 
-      // Handle chat creation differently for temporary vs persistent chats
-      if (!activeChat) {
-        if (isTemporaryChat) {
-          // For temporary chats, generate a local ID and skip database operations
-          currentChatId = `temp-${crypto.randomUUID()}`;
-          // Create a temporary activeChat object
-          const tempActiveChat = {
-            id: currentChatId,
-            title: generateTitle(content.trim()),
-            messages: [],
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          };
-          // We'll manage this locally instead of through the hook
-          // Notify parent component about temporary chat (use temp ID)
-          onChatCreated?.(currentChatId);
-        } else {
-          // For persistent chats, create in database
-          console.log('🆕 Creating new persistent chat...');
-          const title = generateTitle(content.trim());
-          
-          console.log('📞 Calling createNewChat with:', {
-            title: title,
-            userContent: content.trim(),
-            currentActiveChat: !!activeChat,
-            currentActiveChatId: activeChatId
-          });
-          
-          currentChatId =
-            (await createNewChat(title, {
-              role: "user",
-              content: content.trim(),
-            })) || undefined;
+      // Create abort controller for this request
+      const controller = new AbortController();
+      setAbortController(controller);
 
-          console.log('✅ Chat created with ID:', currentChatId);
-
-          if (!currentChatId) {
-            throw new Error("Failed to create new chat");
-          }
-
-          // Notify parent component about new chat (not for temporary chats)
-          onChatCreated?.(currentChatId);
-
-          // Refresh chat history in sidebar
-          fetchChatHistory();
-
-          console.log('🎯 About to continue with AI response. Current state:', {
-            currentChatId: currentChatId,
-            activeChat: !!activeChat,
-            activeChatId: activeChatId
-          });
-
-          // Continue with AI response since the initial message was already added
-        }
-      }
-
-      // Get current messages for context
-      const contextMessages = messages.slice(-MAX_CONTEXT).map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
-
-      // Add the new user message to context
-      contextMessages.push({
-        role: "user",
-        content: content.trim(),
-      });
-
-      // Check if this is an image generation request
-      const isImageRequest = isImageGenerationRequest(content.trim());
-
-      // Create new messages for the current conversation
       const userMessage: Message = {
-        id: crypto.randomUUID(),
-        content: content.trim(),
+        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        content: messageContent,
         role: "user",
         timestamp: new Date(),
-        attachments: attachments,
+        attachments: attachments.length > 0 ? attachments : undefined,
       };
 
-      const assistantId = crypto.randomUUID();
-      let assistantMessage: Message = {
-        id: assistantId,
-        content: isImageRequest ? "" : "",
-        role: "assistant",
-        timestamp: new Date(),
-      };
-
-      // Add user message to local state immediately
-      const updatedMessages = [...messages, userMessage, assistantMessage];
-      setLocalMessages(updatedMessages);
-      setShouldLoadFromDB(false); // We're now managing state locally
-
-      if (isImageRequest) {
-        // Handle image generation
-        setIsStreaming(true);
-
-        // Add this message ID to generating set
-        setGeneratingImageMessageIds((prev) => new Set([...prev, assistantId]));
-
-        // Generate image - use currentChatId (not activeChatId which can be null)
-        if (!currentChatId) {
-          throw new Error("No valid chat ID for image generation");
-        }
-        const imageResult = await handleImageGeneration(
-          content.trim(),
-          currentChatId,
-          assistantId
-        );
-
-        if (imageResult) {
-          // Store the generated image
-          setGeneratedImages((prev) => ({
-            ...prev,
-            [assistantId]: {
-              url: imageResult.url,
-              publicId: imageResult.publicId,
-            },
-          }));
-
-          // Update assistant message with success text and image
-          const imageMessage = `I've generated an image based on your request: "${content.trim()}"`;
-          assistantMessage = {
-            ...assistantMessage,
-            content: imageMessage,
-          };
-        } else {
-          // Update with error message if image generation failed
-          assistantMessage = {
-            ...assistantMessage,
-            content:
-              "Sorry, I was unable to generate an image. Please try again with a different prompt.",
-          };
-        }
-
-        // Update the assistant message in local state
-        setLocalMessages((prev) =>
-          prev.map((msg) => (msg.id === assistantId ? assistantMessage : msg))
-        );
-
-        setIsStreaming(false);
-
-        // Remove from generating set
-        setGeneratingImageMessageIds((prev) => {
-          const newSet = new Set(prev);
-          newSet.delete(assistantId);
-          return newSet;
-        });
-
-        // Save to MongoDB in background (skip for temporary chats)
-        if ((imageResult || !imageResult) && !isTemporaryChat) {
-          // Save regardless of success/failure
-          setIsSavingToMongoDB(true);
-
-          const backgroundSave = async () => {
-            try {
-
-              // For existing chats, save the user message first
-              // Note: For new chats, user message was already saved during createNewChat
-              if (activeChat) {
-                await addMessage(
-                  "user",
-                  content.trim(),
-                  { attachments },
-                  false,
-                  userMessage.id
-                );
-              } else {
-              }
-
-              // Then save the assistant response with image metadata
-              const messageMetadata = {
-                model: selectedModel,
-                tokens: assistantMessage.content.length,
-                imageGenerated: !!imageResult,
-                generatedImage: imageResult
-                  ? {
-                      url: imageResult.url,
-                      publicId: imageResult.publicId,
-                      imageId: imageResult.imageId,
-                      messageId: assistantId, // Link image to message
-                      prompt: content.trim(),
-                      generatedAt: new Date().toISOString(),
-                    }
-                  : undefined,
-              };
-
-
-              // Save assistant message - use direct API call if activeChat is null (new chats)
-              console.log('🔥 FIRST RESPONSE SAVING DEBUG:', {
-                hasActiveChat: !!activeChat,
-                currentChatId: currentChatId,
-                assistantContentLength: assistantMessage.content?.length,
-                assistantContent: assistantMessage.content?.substring(0, 100) + '...',
-                messageMetadata: messageMetadata
-              });
-
-              if (activeChat) {
-                console.log('📝 Saving via addMessage (existing chat)');
-                await addMessage(
-                  "assistant",
-                  assistantMessage.content,
-                  messageMetadata,
-                  false,
-                  assistantMessage.id
-                );
-              } else {
-                console.log('🆕 Saving via direct API (new chat) to chatId:', currentChatId);
-                // For new chats, use direct API call since activeChat is still null
-                const response = await fetch(
-                  `/api/chats/${currentChatId}/messages`,
-                  {
-                    method: "POST",
-                    credentials: "include",
-                    headers: {
-                      "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({
-                      role: "assistant",
-                      content: assistantMessage.content,
-                      metadata: messageMetadata,
-                    }),
-                  }
-                );
-
-                console.log('🌐 Direct API response:', {
-                  ok: response.ok,
-                  status: response.status,
-                  statusText: response.statusText
-                });
-
-                if (!response.ok) {
-                  throw new Error(
-                    `Failed to save assistant message: ${response.status}`
-                  );
-                }
-
-              }
-
-              return true;
-            } catch (error) {
-              console.error('❌ CRITICAL: First AI response saving failed:', error);
-              console.error('Error details:', {
-                errorMessage: error instanceof Error ? error.message : String(error),
-                currentChatId: currentChatId,
-                hasActiveChat: !!activeChat,
-                assistantContentLength: assistantMessage?.content?.length
-              });
-              return false;
-            } finally {
-              setIsSavingToMongoDB(false);
-            }
-          };
-
-          backgroundSave()
-            .then((mongoSaveSuccess) => {
-              // Add memory storage for authenticated users
-              if (mongoSaveSuccess && isSignedIn && user?.id) {
-                try {
-                  const memoryMessages = [
-                    { role: "user" as const, content: content.trim() },
-                    {
-                      role: "assistant" as const,
-                      content: assistantMessage.content,
-                    },
-                  ];
-
-                  const memoryTaskId = backgroundMemorySaver.addMemoryTask(
-                    memoryMessages,
-                    {
-                      chatId: currentChatId,
-                      model: selectedModel,
-                      imageGenerated: !!imageResult,
-                      timestamp: new Date().toISOString(),
-                    }
-                  );
-
-                } catch (memoryError) {
-                }
-              }
-
-              // Refresh chat history in sidebar (skip for temporary chats)
-              if (!isTemporaryChat) {
-                fetchChatHistory();
-              }
-            })
-            .catch((error) => {
-            });
-        }
-
-        setIsLoading(false);
-        return;
-      }
-
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: contextMessages,
-          userId: isTemporaryChat ? "anonymous" : user?.id || userId,
-          attachments: attachments,
-          chatId: currentChatId,
-          isTemporaryChat: isTemporaryChat,
-        }),
-        signal: controller.signal,
-      });
-
-      if (!response.body) throw new Error("No response body");
-
-      // Check if this response contains a generated image
-      const generatedImageHeader = response.headers.get("X-Generated-Image");
-      let generatedImageData = null;
-      if (generatedImageHeader) {
-        try {
-          generatedImageData = JSON.parse(generatedImageHeader);
-        } catch (e) {
-        }
-      }
-
-      const reader = response.body.getReader();
-      let streamingText = "";
-
-      // For regular chat (not image generation), update the assistant message to empty for streaming
-      assistantMessage.content = "";
-      setLocalMessages((prev) =>
-        prev.map((msg) => (msg.id === assistantId ? assistantMessage : msg))
-      );
-      setIsStreaming(true);
-
-      // Stream the response with real-time updates
-      while (true) {
-        try {
-          const { value, done } = await reader.read();
-          if (done) break;
-          const chunk = new TextDecoder().decode(value);
-          streamingText += chunk;
-
-          // Update the assistant message content in real-time
-          setLocalMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === assistantId ? { ...msg, content: streamingText } : msg
-            )
-          );
-        } catch (streamError) {
-          // Check if the stream was aborted
-          if (
-            streamError instanceof Error &&
-            streamError.name === "AbortError"
-          ) {
-            break;
-          }
-          throw streamError;
-        }
-      }
-
-      // End streaming mode immediately - local state is now the source of truth
-      setIsStreaming(false);
-
-      // Save to MongoDB in background without affecting UI state (skip for temporary chats)
-      if (streamingText.trim() && !isTemporaryChat) {
-        console.log('💾 Regular chat saving started:', {
-          hasActiveChat: !!activeChat,
-          currentChatId: currentChatId,
-          streamingTextLength: streamingText.length,
-          isTemporary: isTemporaryChat
-        });
+      let chatForSaving = activeChat;
+      
+      // If no active chat exists and not temporary, create one
+      if (!activeChat && !isTemporaryChat) {
+        // Store the user message as pending until chat is created
+        setPendingUserMessage(userMessage);
+        // Add to local messages for immediate UI feedback
+        setLocalMessages((prev) => [...prev, userMessage]);
         
-        setIsSavingToMongoDB(true);
-
-        // Background save - don't await this, let it run async
-        const backgroundSave = async () => {
-          try {
-            console.log('📝 Attempting to save regular chat response...');
-            
-            // For existing chats, save the user message first
-            if (activeChat) {
-              console.log('👤 Saving user message via addMessage (existing chat)');
-              await addMessage("user", content.trim(), { attachments }, false, userMessage.id);
-            } else {
-              console.log('🆕 New chat: User message already saved during createNewChat');
-            }
-
-            // Save the assistant response - use direct API for new chats, addMessage for existing
-            if (activeChat) {
-              console.log('🤖 Saving assistant response via addMessage (existing chat)');
-              await addMessage(
-                "assistant",
-                streamingText.trim(),
-                {
-                  model: selectedModel,
-                  tokens: streamingText.length,
-                },
-                false,
-                assistantId
-              );
-            } else {
-              console.log('🆕 Saving assistant response via direct API (new chat) to chatId:', currentChatId);
-              
-              const response = await fetch(
-                `/api/chats/${currentChatId}/messages`,
-                {
-                  method: "POST",
-                  credentials: "include",
-                  headers: {
-                    "Content-Type": "application/json",
-                  },
-                  body: JSON.stringify({
-                    role: "assistant",
-                    content: streamingText.trim(),
-                    metadata: {
-                      model: selectedModel,
-                      tokens: streamingText.length,
-                    },
-                    messageId: assistantId,
-                  }),
-                }
-              );
-
-              console.log('🌐 Direct API response for regular chat:', {
-                ok: response.ok,
-                status: response.status,
-                statusText: response.statusText
-              });
-
-              if (!response.ok) {
-                throw new Error(
-                  `Failed to save assistant message: ${response.status}`
-                );
-              }
-            }
-
-            console.log('✅ Regular chat saving completed successfully');
-            return true;
-          } catch (error) {
-            console.error('❌ Regular chat saving failed:', error);
-            return false;
-          } finally {
-            setIsSavingToMongoDB(false);
-          }
-        };
-
-        // Start background save and handle memory storage
-        backgroundSave()
-          .then((mongoSaveSuccess) => {
-            // Add memory storage for authenticated users
-            if (mongoSaveSuccess && isSignedIn && user?.id) {
-              try {
-                const memoryMessages = [
-                  { role: "user" as const, content: content.trim() },
-                  { role: "assistant" as const, content: streamingText.trim() },
-                ];
-
-                const memoryTaskId = backgroundMemorySaver.addMemoryTask(
-                  memoryMessages,
-                  {
-                    chatId: currentChatId,
-                    model: selectedModel,
-                    timestamp: new Date().toISOString(),
-                  }
-                );
-
-              } catch (memoryError) {
-              }
-            }
-
-            // Refresh chat history in sidebar (skip for temporary chats)
-            if (!isTemporaryChat) {
-              fetchChatHistory();
-            }
-          })
-          .catch((error) => {
-          });
-      }
-    } catch (err) {
-
-      // Check if it was an abort error (user clicked stop)
-      if (
-        err instanceof Error &&
-        (err.name === "AbortError" || err.message.includes("aborted"))
-      ) {
-
-        // Clean up the UI state
-        setIsStreaming(false);
-        setIsSavingToMongoDB(false);
-
-        // Add a message indicating the request was stopped
-        if (messages.length > 0) {
-          const lastMessage = messages[messages.length - 1];
-          if (lastMessage.role === "assistant" && !lastMessage.content.trim()) {
-            // Remove the empty assistant message
-            setLocalMessages((prev) => prev.slice(0, -1));
-          }
+        const newChatId = await createNewChat(userMessage.content.slice(0, 50));
+        if (newChatId && onChatCreated) {
+          onChatCreated(newChatId);
         }
-      } else if (
-        err instanceof TypeError &&
-        err.message.includes("Failed to fetch")
-      ) {
-        // Network error (could be due to abort)
-        setIsStreaming(false);
-        setIsSavingToMongoDB(false);
-
-        // Clean up empty assistant messages
-        if (messages.length > 0) {
-          const lastMessage = messages[messages.length - 1];
-          if (lastMessage.role === "assistant" && !lastMessage.content.trim()) {
-            setLocalMessages((prev) => prev.slice(0, -1));
-          }
+        // The useEffect will handle saving the pending message when activeChat is available
+      } else if (!isTemporaryChat && activeChat) {
+        // Existing chat - save normally
+        setPendingMessages((prev) => [...prev, userMessage]);
+        // Save to database
+        const success = await addMessage(
+          userMessage.role,
+          userMessage.content,
+          { 
+            attachments: userMessage.attachments,
+            timestamp: userMessage.timestamp.toISOString()
+          },
+          false, // optimistic = false since we're handling it manually
+          userMessage.id
+        );
+        
+        if (success) {
+          // Remove from pending since it's now in the database
+          setPendingMessages((prev) => prev.filter(m => m.id !== userMessage.id));
+          // Clear any previous errors for this message
+          setFailedMessageIds((prev) => {
+            const newSet = new Set(prev);
+            newSet.delete(userMessage.id);
+            return newSet;
+          });
+        } else {
+          // Mark message as failed
+          console.error('Failed to save user message to database');
+          setError('Failed to save message. Please try again.');
+          setFailedMessageIds((prev) => new Set([...prev, userMessage.id]));
         }
       } else {
-        // End streaming mode and reset states
-        setIsStreaming(false);
-        setIsSavingToMongoDB(false);
+        // For temporary chats, use local messages
+        setLocalMessages((prev) => [...prev, userMessage]);
+      }
 
-        // Add error message to chat if we have an active chat
-        if (activeChatId) {
-          try {
-            await addMessage(
-              "assistant",
-              "Sorry, I encountered an error. Please try again.",
-              { error: true },
+      setInputValue("");
+
+      // Check if this is an image generation request
+      const isImageRequest = isImageGenerationRequest(messageContent);
+
+      if (isImageRequest) {
+        setIsGeneratingImage(true);
+        setGeneratingImageMessageIds(
+          (prev) => new Set([...prev, userMessage.id])
+        );
+
+        try {
+          await generateImageWithFlux(messageContent, userMessage.id);
+
+          // Create assistant message acknowledging the image generation
+          const assistantMessage: Message = {
+            id: `msg_${Date.now() + 1}_${Math.random().toString(36).substr(2, 9)}`,
+            content: "I've generated an image based on your request.",
+            role: "assistant",
+            timestamp: new Date(),
+            metadata: {
+              imageGenerated: true,
+            },
+          };
+
+          // Save assistant message to database or local state
+          if (!isTemporaryChat && activeChat) {
+            setPendingMessages((prev) => [...prev, assistantMessage]);
+            const success = await addMessage(
+              assistantMessage.role,
+              assistantMessage.content,
+              assistantMessage.metadata,
               false,
-              crypto.randomUUID() // Generate new ID for error message
+              assistantMessage.id
             );
-          } catch (dbError) {
+            
+            if (success) {
+              setPendingMessages((prev) => prev.filter(m => m.id !== assistantMessage.id));
+              setFailedMessageIds((prev) => {
+                const newSet = new Set(prev);
+                newSet.delete(assistantMessage.id);
+                return newSet;
+              });
+            } else {
+              console.error('Failed to save image generation message to database');
+              setError('Failed to save image generation message.');
+              setFailedMessageIds((prev) => new Set([...prev, assistantMessage.id]));
+            }
+          } else {
+            setLocalMessages((prev) => [...prev, assistantMessage]);
           }
+        } catch (error) {
+          console.error("Error generating image:", error);
+          // Remove from generating set if failed
+          setGeneratingImageMessageIds((prev) => {
+            const newSet = new Set(prev);
+            newSet.delete(userMessage.id);
+            return newSet;
+          });
+        } finally {
+          setIsGeneratingImage(false);
         }
+      } else {
+        // Prepare context for API call
+        const contextMessages = messages.slice(-MAX_CONTEXT).map((m) => ({
+          role: m.role,
+          content: m.content,
+        }));
+
+        // Add the new user message to the context
+        const allMessages = [
+          ...contextMessages,
+          { role: "user" as const, content: messageContent }
+        ];
+
+        const response = await fetch("/api/chat", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            messages: allMessages,
+            userId: currentUserId,
+            sessionId: "default-session",
+            model: selectedModel,
+          }),
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+        let assistantResponse = "";
+
+        if (reader) {
+          // Create assistant message for streaming
+          const assistantId = `msg_${Date.now() + 1}_${Math.random().toString(36).substr(2, 9)}`;
+          setCurrentStreamingId(assistantId);
+          setIsStreamingLocal(true);
+          
+          // Create a streaming message placeholder
+          const streamingMsg: Message = {
+            id: assistantId,
+            content: "",
+            role: "assistant",
+            timestamp: new Date(),
+            metadata: {
+              model: selectedModel,
+              isStreaming: true,
+            },
+          };
+          setStreamingMessage(streamingMsg);
+
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              const chunk = decoder.decode(value);
+              console.log("Received chunk:", chunk); // Debug log
+              const lines = chunk.split("\n");
+
+              for (const line of lines) {
+                if (line.startsWith("data: ")) {
+                  const data = line.slice(6);
+                  console.log("Processing SSE data:", data); // Debug log
+                  
+                  if (data === "[DONE]") {
+                    console.log("Stream completed with [DONE]"); // Debug log
+                    break;
+                  }
+
+                  try {
+                    const parsed = JSON.parse(data);
+                    console.log("Parsed streaming data:", parsed); // Debug log
+                    
+                    if (parsed.content) {
+                      assistantResponse += parsed.content;
+                      setStreamingContent(assistantResponse);
+                      
+                      // Update the streaming message content
+                      setStreamingMessage(prev => prev ? {
+                        ...prev,
+                        content: assistantResponse
+                      } : null);
+                      
+                      console.log("Updated streaming content, length:", assistantResponse.length); // Debug log
+                    }
+                  } catch (parseError) {
+                    console.error("Error parsing streaming data:", parseError);
+                    console.log("Raw streaming data:", data);
+                  }
+                }
+              }
+            }
+          } finally {
+            reader.releaseLock();
+          }
+
+          // Create final assistant message
+          const finalAssistantMessage: Message = {
+            id: assistantId,
+            content: assistantResponse,
+            role: "assistant",
+            timestamp: new Date(),
+            metadata: {
+              model: selectedModel,
+              tokens: assistantResponse.length,
+            },
+          };
+
+          // Save assistant message to database or local state FIRST
+          if (!isTemporaryChat) {
+            // Check if we have an active chat
+            if (activeChat) {
+              setPendingMessages((prev) => [...prev, finalAssistantMessage]);
+              // Save to database
+              const success = await addMessage(
+                finalAssistantMessage.role,
+                finalAssistantMessage.content,
+                finalAssistantMessage.metadata,
+                false, // optimistic = false
+                finalAssistantMessage.id
+              );
+              
+              if (success) {
+                // Remove from pending since it's now in the database
+                setPendingMessages((prev) => prev.filter(m => m.id !== finalAssistantMessage.id));
+                // Clear any previous errors
+                setFailedMessageIds((prev) => {
+                  const newSet = new Set(prev);
+                  newSet.delete(finalAssistantMessage.id);
+                  return newSet;
+                });
+              } else {
+                console.error('Failed to save assistant message to database');
+                setError('Failed to save response. The conversation may not be saved.');
+                setFailedMessageIds((prev) => new Set([...prev, finalAssistantMessage.id]));
+              }
+            } else {
+              // No active chat yet (newly created chat, state not updated yet)
+              // Store as pending and add to local messages for UI
+              setPendingAssistantMessage(finalAssistantMessage);
+              setLocalMessages((prev) => [...prev, finalAssistantMessage]);
+              console.log('Assistant message stored as pending - activeChat not yet available');
+            }
+          } else {
+            // For temporary chats, use local messages
+            setLocalMessages((prev) => [...prev, finalAssistantMessage]);
+          }
+
+          // Clear streaming state AFTER saving the message
+          setStreamingContent("");
+          setCurrentStreamingId(null);
+          setIsStreamingLocal(false);
+          setStreamingMessage(null);
+
+          // Generate title if this is the first exchange
+          if (
+            activeChat &&
+            activeChat.messages.length === 0 &&
+            !isTemporaryChat
+          ) {
+            const title = await generateTitle(messageContent);
+            if (title) {
+              await updateTitle(title);
+            }
+          }
+
+          // TODO: Save to background memory without blocking UI
+          // backgroundMemorySaver.saveConversation(currentUserId, messageContent, assistantResponse);
+        }
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        console.log("Request was aborted");
+        setError(null); // Clear error on user abort
+      } else {
+        console.error("Error sending message:", error);
+        setError(error instanceof Error ? error.message : 'An unexpected error occurred');
       }
     } finally {
       setIsLoading(false);
+      setIsStreamingLocal(false);
       setAbortController(null);
     }
   };
 
+  // Handle edit message
   const handleEditMessage = (messageId: string, content: string) => {
     setEditingMessageId(messageId);
     setEditContent(content);
@@ -1186,217 +706,111 @@ export function MainContent({
 
   const handleSaveEdit = async (messageId: string) => {
     if (!editContent.trim()) return;
-    const messageIndex = messages.findIndex((m) => m.id === messageId);
-    if (messageIndex === -1) return;
-
-    const message = messages[messageIndex];
-    const originalMessages = [...messages]; // Keep original state for rollback
-    
-    setIsEditingSave(true);
 
     try {
-      // Only update user messages (assistant messages should use regenerate)
-      if (message.role === "user" && activeChatId && !isTemporaryChat) {
-        console.log(`Editing message: ${messageId} in chat: ${activeChatId}`);
-        console.log(`Original message content: "${message.content}"`);
-        console.log(`New message content: "${editContent.trim()}"`);
-        
-        // Check if message exists in activeChat (database state)
-        const messageExistsInDB = activeChat?.messages.some(m => m.id === messageId);
-        console.log(`Message exists in database: ${messageExistsInDB}`);
-        
-        if (activeChat) {
-          console.log(`Database messages:`, activeChat.messages.map(m => ({ 
-            id: m.id, 
-            role: m.role, 
-            content: m.content.substring(0, 50) + '...' 
-          })));
-        }
-        
-        // If message doesn't exist in DB, we need to sync the IDs first
-        if (!messageExistsInDB) {
-          console.log('Message not found in database, refreshing chat to sync IDs...');
-          await fetchChatHistory();
-          
-          // Find the message by content match using the original content (before editing)
-          // We need to match against the original message content, not the edited content
-          const dbMessage = activeChat?.messages.find(m => 
-            m.role === message.role && 
-            m.content === message.content // message.content is the original content
-          );
-          
-          if (dbMessage) {
-            console.log(`Found matching message in DB with ID: ${dbMessage.id}, updating local reference`);
-            
-            // Update the message ID in our local messages array
-            const updatedLocalMessages = [...messages];
-            updatedLocalMessages[messageIndex] = { ...message, id: dbMessage.id };
-            setLocalMessages(updatedLocalMessages);
-            
-            // Update the messageId for the API call
-            messageId = dbMessage.id;
-          } else {
-            // If we still can't find it, it might be that the message hasn't been saved yet
-            // Let's try one more time after a short delay
-            console.log('Still not found, waiting a moment and trying again...');
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            await fetchChatHistory();
-            
-            const dbMessageRetry = activeChat?.messages.find(m => 
-              m.role === message.role && 
-              m.content === message.content // Still using original content for matching
-            );
-            
-            if (dbMessageRetry) {
-              console.log(`Found message on retry with ID: ${dbMessageRetry.id}`);
-              const updatedLocalMessages = [...messages];
-              updatedLocalMessages[messageIndex] = { ...message, id: dbMessageRetry.id };
-              setLocalMessages(updatedLocalMessages);
-              messageId = dbMessageRetry.id;
-            } else {
-              throw new Error('Cannot find corresponding message in database. The message may not have been saved yet. Please wait a moment and try again.');
-            }
-          }
-        }
-        
-        // Optimistically update local state
-        const updatedMessages = [...messages];
-        updatedMessages[messageIndex] = { ...message, content: editContent.trim() };
-        setLocalMessages(updatedMessages);
+      setIsEditingSave(true);
 
-        // Call API to update the message in the database and prepare for regeneration
-        console.log(`Making API call to update message ${messageId} with content: "${editContent.trim()}"`);
-        
-        const response = await fetch(`/api/chats/${activeChatId}/messages/${messageId}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            content: editContent.trim(),
-            regenerateResponse: true, // This will remove subsequent messages for regeneration
-          }),
-        });
-        
-        console.log(`API response status: ${response.status}`);
+      // Find the message being edited
+      const messageIndex = messages.findIndex((m) => m.id === messageId);
+      if (messageIndex === -1) return;
 
-        if (!response.ok) {
-          // Revert on API error
-          setLocalMessages(originalMessages);
-          let errorMessage = `Failed to update message: ${response.status}`;
+      const originalMessage = messages[messageIndex];
+
+      // Create edit history entry
+      const editHistoryEntry = {
+        content: originalMessage.content,
+        timestamp: new Date(),
+      };
+
+      // Update the message with new content and edit history
+      const updatedMessage: Message = {
+        ...originalMessage,
+        content: editContent.trim(),
+        metadata: {
+          ...originalMessage.metadata,
+          editHistory: [
+            ...(originalMessage.metadata?.editHistory || []),
+            editHistoryEntry,
+          ],
+        },
+      };
+
+      // Check if message exists in the database
+      if (activeChat && !isTemporaryChat) {
+        const messageExistsInDB = activeChat?.messages.some(
+          (m) => m.id === messageId
+        );
+
+        if (messageExistsInDB) {
+          // Update existing message in database
           try {
-            const errorData = await response.json();
-            errorMessage = errorData.error || errorMessage;
-            console.error('API Error Details:', errorData);
-          } catch (parseError) {
-            const errorText = await response.text();
-            console.error('Raw Error Response:', errorText);
-            errorMessage = `${errorMessage} - ${errorText}`;
-          }
-          throw new Error(errorMessage);
-        }
-
-        // Update was successful - get the updated chat data
-        const result = await response.json();
-        const updatedChat = result.chat;
-        const shouldRegenerate = result.shouldRegenerate;
-        const assistantMessageToReplace = result.assistantMessageToReplace;
-        const contextMessages = result.contextMessages;
-        
-        console.log('Frontend received context messages from API:', contextMessages.map(m => ({ 
-          id: m.id, 
-          role: m.role, 
-          content: m.content 
-        })));
-        console.log('Should regenerate:', shouldRegenerate);
-        console.log('Assistant to replace:', assistantMessageToReplace);
-
-        // Update local messages with the context from backend (already processed)
-        const dbMessages: Message[] = contextMessages.map((msg: any) => ({
-          id: msg.id,
-          content: msg.content,
-          role: msg.role,
-          timestamp: msg.timestamp,
-          attachments: msg.attachments || [],
-          metadata: msg.metadata || {},
-        }));
-
-        console.log('Setting updated messages from backend:', dbMessages);
-        setLocalMessages(dbMessages);
-        
-        // Ensure the UI reflects the updated content immediately
-        const updatedMessage = dbMessages.find(m => m.id === messageId);
-        if (updatedMessage) {
-          console.log(`Updated message content in UI: "${updatedMessage.content}"`);
-        }
-        
-        // If we should regenerate, trigger a new response using the backend-provided context
-        if (shouldRegenerate) {
-          const hasAssistantResponse = dbMessages.some(m => m.role === 'assistant');
-          
-          if (assistantMessageToReplace || !hasAssistantResponse) {
-            // If there was an assistant message to replace OR no assistant response exists yet
-            console.log('Regenerating response...', { 
-              hasAssistantResponse, 
-              assistantMessageToReplace: !!assistantMessageToReplace,
-              messageCount: dbMessages.length 
+            const response = await fetch(`/api/messages/${messageId}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                content: editContent.trim(),
+                editHistory: updatedMessage.metadata?.editHistory,
+              }),
             });
-            try {
-              await regenerateResponseFromMessages(dbMessages, assistantMessageToReplace);
-              console.log('Response regeneration completed successfully');
-            } catch (regenerateError) {
-              console.error('Error during response regeneration:', regenerateError);
+
+            if (!response.ok) {
+              throw new Error("Failed to update message in database");
             }
-          } else {
-            console.log('No regeneration needed - no assistant message to replace and assistant response exists');
+            
+            // The activeChat hook should automatically refresh when API succeeds
+          } catch (dbError) {
+            console.error("Database update failed:", dbError);
+            // Fall back to local update if database fails
+            setLocalMessages((prev) =>
+              prev.map((msg) => (msg.id === messageId ? updatedMessage : msg))
+            );
+            setPendingMessages((prev) =>
+              prev.map((msg) => (msg.id === messageId ? updatedMessage : msg))
+            );
           }
         } else {
-          console.log('shouldRegenerate is false, not regenerating response');
+          // Message not in DB, update local/pending messages
+          setLocalMessages((prev) =>
+            prev.map((msg) => (msg.id === messageId ? updatedMessage : msg))
+          );
+          setPendingMessages((prev) =>
+            prev.map((msg) => (msg.id === messageId ? updatedMessage : msg))
+          );
+        }
+      } else {
+        // Update local messages for temporary chat
+        setLocalMessages((prev) =>
+          prev.map((msg) => (msg.id === messageId ? updatedMessage : msg))
+        );
+      }
+
+      // If this was a user message and it triggered regeneration of subsequent messages
+      if (originalMessage.role === "user") {
+        // Remove all messages after this one and regenerate
+        const messagesUpToUser = messages.slice(0, messageIndex + 1);
+        // Update the user message in this slice
+        messagesUpToUser[messageIndex] = updatedMessage;
+
+        // Clear subsequent messages and regenerate
+        // For database chats, this needs more sophisticated handling
+        if (isTemporaryChat) {
+          setLocalMessages(messagesUpToUser.filter(msg => msg.role === 'user'));
+        } else {
+          // Clear pending messages that come after this user message
+          setPendingMessages([]);
+          setStreamingMessage(null);
         }
 
-        // Force refresh chat history to ensure UI is in sync
-        console.log('Edit completed successfully, refreshing chat history...');
-        try {
-          await fetchChatHistory();
-          console.log('Chat history refreshed successfully');
-          
-          // Also reload the chat to ensure complete sync
-          if (activeChatId) {
-            await loadChat(activeChatId);
-            console.log('Chat reloaded successfully');
-          }
-        } catch (refreshError) {
-          console.error('Error refreshing chat:', refreshError);
-        }
-        
-        // Reset UI states immediately after successful edit
-        console.log('Edit completed successfully, resetting UI states...');
-        setIsEditingSave(false);
-        setEditingMessageId(null);
-        setEditContent("");
-        
-      } else if (message.role === "user") {
-        // For temporary chats, just update local state
-        const updatedMessages = [...messages];
-        updatedMessages[messageIndex] = { ...message, content: editContent.trim() };
-        setLocalMessages(updatedMessages);
-      } else {
-        // For assistant messages, regenerate the response (existing behavior)
+        // Regenerate assistant response
         await handleRegenerateResponse(messageId);
-        return; // Exit early as regenerate handles its own UI states
       }
-    } catch (error) {
-      console.error('Failed to save edit:', error);
-      // Ensure we revert to original state on any error
-      setLocalMessages(originalMessages);
-      
-      // TODO: Add toast notification for better UX
-      alert(`Failed to save edit: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      console.log('Edit operation completed, resetting UI states...');
-      setIsEditingSave(false);
+
       setEditingMessageId(null);
       setEditContent("");
+    } catch (error) {
+      console.error("Error saving edit:", error);
+    } finally {
+      setIsEditingSave(false);
     }
   };
 
@@ -1406,204 +820,44 @@ export function MainContent({
   };
 
   const handleRegenerateResponse = async (messageId: string) => {
-    if (isLoading || isStreaming) return;
-
-    // Find the message to regenerate and the previous user message
-    const messageIndex = messages.findIndex((msg) => msg.id === messageId);
-    if (messageIndex === -1 || messages[messageIndex].role !== "assistant") {
-      return;
-    }
-
-    // Find the corresponding user message (should be the one right before)
-    const userMessageIndex = messageIndex - 1;
-    if (userMessageIndex < 0 || messages[userMessageIndex].role !== "user") {
-      return;
-    }
-
-    const userMessage = messages[userMessageIndex];
-    const isImageRequest = isImageGenerationRequest(userMessage.content);
-
     try {
       setIsLoading(true);
-      setIsStreaming(true);
 
-      // Remove the old assistant response from local state
-      const messagesUpToUser = messages.slice(0, messageIndex);
+      // Find the message that triggered the regeneration
+      const messageIndex = messages.findIndex((msg) => msg.id === messageId);
+      if (messageIndex === -1) return;
 
-      // Create a new assistant message
-      const newAssistantId = crypto.randomUUID();
-      const newAssistantMessage: Message = {
-        id: newAssistantId,
-        content: isImageRequest ? "" : "",
-        role: "assistant",
-        timestamp: new Date(),
-      };
+      // If it's a user message, get all messages up to and including this one
+      const messagesUpToUser = messages.slice(0, messageIndex + 1);
+      const lastUserMessage = messagesUpToUser[messagesUpToUser.length - 1];
 
-      // Update local state with new assistant message
-      const updatedMessages = [...messagesUpToUser, newAssistantMessage];
-      setLocalMessages(updatedMessages);
+      if (lastUserMessage.role !== "user") return;
 
-      if (isImageRequest) {
-        // Handle image regeneration
-        setGeneratingImageMessageIds(
-          (prev) => new Set([...prev, newAssistantId])
-        );
-        const imageResult = await handleImageGeneration(
-          userMessage.content,
-          activeChatId!,
-          newAssistantId
-        );
-
-        if (imageResult) {
-          setGeneratedImages((prev) => ({
-            ...prev,
-            [newAssistantId]: {
-              url: imageResult.url,
-              publicId: imageResult.publicId,
-            },
-          }));
-
-          newAssistantMessage.content = `I've regenerated an image based on your request: "${userMessage.content}"`;
-        } else {
-          newAssistantMessage.content =
-            "Sorry, I was unable to regenerate the image. Please try again.";
-        }
-
-        // Update the message in local state
-        setLocalMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === newAssistantId ? newAssistantMessage : msg
-          )
-        );
-
-        // Remove from generating set
-        setGeneratingImageMessageIds((prev) => {
-          const newSet = new Set(prev);
-          newSet.delete(newAssistantId);
-          return newSet;
-        });
-
-        // Save to MongoDB (skip for temporary chats)
-        if (!isTemporaryChat) {
-          setIsSavingToMongoDB(true);
-          try {
-            await addMessage(
-              "assistant",
-              newAssistantMessage.content,
-              {
-                model: selectedModel,
-                tokens: newAssistantMessage.content.length,
-                imageGenerated: !!imageResult,
-                regenerated: true,
-                generatedImage: imageResult
-                  ? {
-                      url: imageResult.url,
-                      publicId: imageResult.publicId,
-                      imageId: imageResult.imageId,
-                      messageId: newAssistantId, // Link image to message
-                      prompt: userMessage.content,
-                      generatedAt: new Date().toISOString(),
-                    }
-                  : undefined,
-              },
-              false,
-              newAssistantId
-            );
-          } catch (error) {
-          } finally {
-            setIsSavingToMongoDB(false);
-          }
-        }
+      // Handle regeneration for local messages or temporary chats
+      if (activeChat && !isTemporaryChat) {
+        // For now, handle regeneration manually since regenerateMessage is not available
+        // Remove all assistant messages after the user message
+        const filteredMessages = messagesUpToUser;
+        setLocalMessages(filteredMessages);
+        // Regenerate response
+        await handleSendMessage(lastUserMessage.content);
       } else {
-        // Handle text regeneration
-        const historyForAPI = messagesUpToUser
-          .filter((msg) => msg.role !== "system")
-          .slice(-MAX_CONTEXT)
-          .map((msg) => ({
-            role: msg.role,
-            content: msg.content,
-          }));
+        // Handle regeneration for local messages or temporary chats
+        // Remove all assistant messages after the user message
+        const filteredMessages = messagesUpToUser;
+        setLocalMessages(filteredMessages);
 
-        // Make API call for text response
-        const response = await fetch("/api/chat", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            messages: historyForAPI,
-            userId: isTemporaryChat ? "anonymous" : userId,
-            chatId: activeChatId,
-            attachments: userMessage.attachments,
-            isTemporaryChat: isTemporaryChat,
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const reader = response.body?.getReader();
-        if (!reader) {
-          throw new Error("No response body reader available");
-        }
-
-        let fullContent = "";
-        const decoder = new TextDecoder();
-
-        // Stream the response
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value, { stream: true });
-          fullContent += chunk;
-
-          // Update the assistant message with streaming content
-          setLocalMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === newAssistantId ? { ...msg, content: fullContent } : msg
-            )
-          );
-        }
-
-        // Save the final response to MongoDB (skip for temporary chats)
-        if (!isTemporaryChat) {
-          setIsSavingToMongoDB(true);
-          try {
-            await addMessage(
-              "assistant",
-              fullContent,
-              {
-                model: selectedModel,
-                tokens: fullContent.length,
-                regenerated: true,
-              },
-              false,
-              newAssistantId
-            );
-
-            // Background memory saving removed
-          } catch (error) {
-          } finally {
-            setIsSavingToMongoDB(false);
-          }
-        }
-      }
-
-      // Refresh chat history (skip for temporary chats)
-      if (!isTemporaryChat) {
-        fetchChatHistory();
+        // Regenerate response
+        await handleSendMessage(lastUserMessage.content);
       }
     } catch (error) {
-      // Restore original message on error
-      setLocalMessages(messages);
+      console.error("Error regenerating response:", error);
     } finally {
       setIsLoading(false);
-      setIsStreaming(false);
     }
   };
 
+  // Handle keyboard events
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -1622,9 +876,9 @@ export function MainContent({
     try {
       await navigator.clipboard.writeText(text);
       setCopiedMessageId(messageId);
-      // Clear the feedback after 2 seconds
       setTimeout(() => setCopiedMessageId(null), 2000);
-    } catch (err) {
+    } catch (error) {
+      console.error("Error copying to clipboard:", error);
     }
   };
 
@@ -1664,30 +918,18 @@ export function MainContent({
     });
   };
 
-  const resetChat = () => {
-    // Reset local state
-    setInputValue("");
-    setIsLoading(false);
-    setEditingMessageId(null);
-    setEditContent("");
-    setIsStreaming(false);
-    setLocalMessages([]);
-    setShouldLoadFromDB(true);
-    setIsSavingToMongoDB(false);
-    setGeneratedImages({});
-    setIsGeneratingImage(false);
-    setGeneratingImageMessageIds(new Set());
-    setAbortController(null);
-    setCopiedMessageId(null);
-    setLikedMessages(new Set());
-    setDislikedMessages(new Set());
-  };
-
   const handleTemporaryChatToggle = (enabled: boolean) => {
     setIsTemporaryChat(enabled);
-    // Reset chat when switching modes to avoid mixing temporary and persistent data
-    if (messages.length > 0) {
-      resetChat();
+    // Clear all message state when toggling temporary chat
+    if (enabled) {
+      setLocalMessages([]);
+      setPendingMessages([]);
+      setStreamingMessage(null);
+      setError(null);
+      setFailedMessageIds(new Set());
+      setStreamingContent("");
+      setCurrentStreamingId(null);
+      setIsStreamingLocal(false);
     }
   };
 
@@ -1695,171 +937,91 @@ export function MainContent({
     setSelectedModel(model);
   };
 
+  // Clean up on unmount
+  useEffect(() => {
+    return () => {
+      if (abortController) {
+        abortController.abort();
+      }
+    };
+  }, [abortController]);
+
+  // Clear all message state when activeChatId changes
+  useEffect(() => {
+    setLocalMessages([]); // Clear local messages from previous chat
+    setPendingMessages([]);
+    setStreamingMessage(null);
+    setError(null);
+    setFailedMessageIds(new Set());
+    setStreamingContent("");
+    setCurrentStreamingId(null);
+    setIsStreamingLocal(false);
+  }, [activeChatId]);
+
+  // Load chat when activeChatId changes, or clear when undefined
+  useEffect(() => {
+    console.log("activeChatId changed:", activeChatId); // Debug log
+    if (activeChatId && !activeChatId.startsWith('temp-') && isSignedIn && user?.id && loadChat) {
+      console.log("Loading chat:", activeChatId); // Debug log
+      loadChat(activeChatId);
+    } else if (!activeChatId && clearActiveChat) {
+      console.log("Clearing active chat for new chat"); // Debug log
+      // Clear active chat when starting a new chat
+      clearActiveChat();
+    }
+  }, [activeChatId, isSignedIn, user?.id, loadChat, clearActiveChat]);
+
+  // Auto-clear error after 5 seconds
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => {
+        setError(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
+  // Set up global reset function for chat
   useEffect(() => {
     if (typeof window !== "undefined") {
-      (window as any).resetMainContentChat = resetChat;
+      (window as any).resetMainContentChat = () => {
+        setLocalMessages([]);
+        setPendingMessages([]);
+        setInputValue("");
+        setIsLoading(false);
+        setEditingMessageId(null);
+        setEditContent("");
+        setGeneratedImages({});
+        setIsGeneratingImage(false);
+        setGeneratingImageMessageIds(new Set());
+        setAbortController(null);
+        setStreamingContent("");
+        setCurrentStreamingId(null);
+        setStreamingMessage(null);
+        setError(null);
+        setFailedMessageIds(new Set());
+        setIsStreamingLocal(false);
+      };
     }
   }, []);
-
-  // Debug logging for generated images
-  useEffect(() => {
-  }, [generatedImages]);
 
   return (
     <div>
       {showImageView ? (
-        <div className="flex-1 flex flex-col items-center justify-center relative">
-          <Button
-            onClick={onCloseImageView}
-            className="absolute top-4 right-4 h-10 w-10 p-0 bg-black/50 hover:bg-black/70 text-white rounded-full z-10"
-            size="icon"
-          >
-            ✕
-          </Button>
-          {currentImage && (
-            <div className="w-full h-full flex items-center justify-center p-4">
-              <img
-                src={currentImage}
-                alt="Generated image preview"
-                className="max-w-full max-h-full object-contain rounded-lg"
-              />
-            </div>
-          )}
-        </div>
+        <ImageView
+          currentImage={currentImage}
+          onCloseImageView={onCloseImageView}
+        />
       ) : (
         <div className={cn("flex flex-col h-screen relative")}>
           {/* Mobile Header with Full Width Layout */}
           {isMobile && (
-            <div className="flex items-center justify-between py-3 px-4 bg-[#2f2f2f] w-full">
-              {/* Hamburger Menu - Far Left */}
-              <div className="flex items-center space-x-2">
-                {!isNavExpanded && onToggle && (
-                  <Button
-                    onClick={onToggle}
-                    variant="ghost"
-                    size="icon"
-                    className="text-white hover:bg-[#404040] w-10 h-10 p-0 flex-shrink-0"
-                    aria-label="Open navigation menu"
-                  >
-                    <svg
-                      width="20"
-                      height="20"
-                      viewBox="0 0 20 20"
-                      fill="currentColor"
-                      xmlns="http://www.w3.org/2000/svg"
-                      data-rtl-flip=""
-                      className="icon-lg text-token-text-secondary mx-2"
-                    >
-                      <circle cx="15" cy="5" r="5" fill="#0285FF"></circle>
-                      {/* Top line */}
-                      <rect
-                        x="2"
-                        y="4"
-                        width="14"
-                        height="1.5"
-                        rx="0.75"
-                        fill="currentColor"
-                      ></rect>
-                      {/* Bottom line */}
-                      <rect
-                        x="2"
-                        y="14"
-                        width="16"
-                        height="1.5"
-                        rx="0.75"
-                        fill="currentColor"
-                      ></rect>
-                    </svg>
-                  </Button>
-                )}
-
-                {/* Upgrade Button - Center Left */}
-                <div className={cn("flex-1 flex justify-center")}>
-                  <Button className="bg-[#6366f1] hover:bg-[#414071] text-white px-4 py-2 rounded-full text-sm font-medium">
-                    <div className="w-4 h-4 mr-2 flex items-center justify-center">
-                      <svg
-                        viewBox="0 0 24 24"
-                        className="w-3 h-3 text-white"
-                        fill="currentColor"
-                      >
-                        <path d="M22.282 9.821a5.985 5.985 0 0 0-.516-4.91 6.046 6.046 0 0 0-6.51-2.9A6.065 6.065 0 0 0 4.981 4.18a5.985 5.985 0 0 0-3.998 2.9 6.046 6.046 0 0 0 .743 7.097 5.98 5.98 0 0 0 .51 4.911 6.078 6.078 0 0 0 6.529 2.9 5.973 5.973 0 0 0 4.258 1.786c1.638 0 3.185-.65 4.299-1.786a5.987 5.987 0 0 0 4.007-2.9 6.042 6.042 0 0 0-.75-7.094l.003-.003z" />
-                      </svg>
-                    </div>
-                    Upgrade to Go
-                  </Button>
-                </div>
-              </div>
-
-              {/* Temporary Chat Toggle - Far Right */}
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      onClick={() =>
-                        handleTemporaryChatToggle(!isTemporaryChat)
-                      }
-                      variant="ghost"
-                      size="icon"
-                      className="text-white hover:bg-[#404040] w-10 h-10 p-0 flex-shrink-0"
-                      aria-label={
-                        isTemporaryChat
-                          ? "Turn off temporary chat"
-                          : "Turn on temporary chat"
-                      }
-                    >
-                      {isTemporaryChat ? (
-                        // Active state - show checkmark version
-                        <svg
-                          width="20"
-                          height="20"
-                          viewBox="0 0 20 20"
-                          fill="currentColor"
-                          xmlns="http://www.w3.org/2000/svg"
-                          data-rtl-flip=""
-                          className="icon"
-                        >
-                          <path
-                            d="M11.7304 7.35195C11.9273 7.04193 12.3384 6.95002 12.6484 7.14687C12.9582 7.34374 13.0502 7.75487 12.8535 8.06484L9.67868 13.0648C9.56765 13.2397 9.38114 13.3525 9.17477 13.3705C8.96844 13.3885 8.76558 13.3096 8.62595 13.1566L6.80075 11.1566L6.7197 11.0482C6.56149 10.7827 6.60647 10.4337 6.84372 10.2172C7.08112 10.0007 7.43256 9.98823 7.68259 10.1703L7.78317 10.2601L9.02145 11.6166L11.7304 7.35195Z"
-                            data-rtl-flip=""
-                          ></path>
-                          <path d="M4.52148 15.1664C4.61337 14.8108 4.39951 14.4478 4.04395 14.3559C3.73281 14.2756 3.41605 14.4295 3.28027 14.7074L3.2334 14.8334C3.13026 15.2324 3.0046 15.6297 2.86133 16.0287L2.71289 16.4281C2.63179 16.6393 2.66312 16.8775 2.79688 17.06C2.93067 17.2424 3.14825 17.3443 3.37402 17.3305L3.7793 17.3002C4.62726 17.2265 5.44049 17.0856 6.23438 16.8764C6.84665 17.1788 7.50422 17.4101 8.19434 17.558C8.55329 17.6347 8.9064 17.4062 8.9834 17.0473C9.06036 16.6881 8.83177 16.3342 8.47266 16.2572C7.81451 16.1162 7.19288 15.8862 6.62305 15.5814C6.50913 15.5205 6.38084 15.4946 6.25391 15.5053L6.12793 15.5277C5.53715 15.6955 4.93256 15.819 4.30566 15.9027C4.33677 15.8052 4.36932 15.7081 4.39844 15.6098L4.52148 15.1664Z"></path>
-                          <path d="M15.7998 14.5365C15.5786 14.3039 15.2291 14.2666 14.9668 14.4301L14.8604 14.5131C13.9651 15.3633 12.8166 15.9809 11.5273 16.2572C11.1682 16.3342 10.9396 16.6881 11.0166 17.0473C11.0936 17.4062 11.4467 17.6347 11.8057 17.558C13.2388 17.2509 14.5314 16.5858 15.5713 15.6644L15.7754 15.4769C16.0417 15.224 16.0527 14.8028 15.7998 14.5365Z"></path>
-                          <path d="M2.23828 7.58925C1.97668 8.34846 1.83496 9.15956 1.83496 10.0004C1.835 10.7359 1.94324 11.4483 2.14551 12.1234L2.23828 12.4105C2.35793 12.7576 2.73588 12.9421 3.08301 12.8226C3.3867 12.718 3.56625 12.4153 3.52637 12.1088L3.49512 11.9769C3.2808 11.3548 3.16508 10.6908 3.16504 10.0004C3.16504 9.30975 3.28072 8.64512 3.49512 8.02284C3.61476 7.67561 3.43024 7.29679 3.08301 7.17714C2.73596 7.05777 2.35799 7.2423 2.23828 7.58925Z"></path>
-                          <path d="M16.917 12.8226C17.2641 12.9421 17.6421 12.7576 17.7617 12.4105C18.0233 11.6515 18.165 10.8411 18.165 10.0004C18.165 9.15956 18.0233 8.34846 17.7617 7.58925C17.642 7.2423 17.264 7.05777 16.917 7.17714C16.5698 7.29679 16.3852 7.67561 16.5049 8.02284C16.7193 8.64512 16.835 9.30975 16.835 10.0004C16.8349 10.6908 16.7192 11.3548 16.5049 11.9769C16.3852 12.3242 16.5698 12.703 16.917 12.8226Z"></path>
-                          <path d="M8.9834 2.95253C8.90632 2.59372 8.55322 2.36509 8.19434 2.44179C6.76126 2.74891 5.46855 3.41404 4.42871 4.33534L4.22461 4.52284C3.95829 4.77575 3.94729 5.19696 4.2002 5.46327C4.42146 5.69603 4.77088 5.73326 5.0332 5.56972L5.13965 5.48769C6.03496 4.63746 7.18337 4.01888 8.47266 3.74257C8.83177 3.66561 9.06036 3.31165 8.9834 2.95253Z"></path>
-                          <path d="M15.5713 4.33534C14.5314 3.41404 13.2387 2.74891 11.8057 2.44179C11.4468 2.36509 11.0937 2.59372 11.0166 2.95253C10.9396 3.31165 11.1682 3.66561 11.5273 3.74257C12.7361 4.00161 13.8209 4.56094 14.6895 5.33046L14.8604 5.48769L14.9668 5.56972C15.2291 5.73326 15.5785 5.69603 15.7998 5.46327C16.0211 5.23025 16.0403 4.87902 15.8633 4.62538L15.7754 4.52284L15.5713 4.33534Z"></path>
-                        </svg>
-                      ) : (
-                        // Inactive state - show regular version
-                        <svg
-                          width="20"
-                          height="20"
-                          viewBox="0 0 20 20"
-                          fill="currentColor"
-                          xmlns="http://www.w3.org/2000/svg"
-                          data-rtl-flip=""
-                        >
-                          <path d="M4.52148 15.1664C4.61337 14.8108 4.39951 14.4478 4.04395 14.3559C3.73281 14.2756 3.41605 14.4295 3.28027 14.7074L3.2334 14.8334C3.13026 15.2324 3.0046 15.6297 2.86133 16.0287L2.71289 16.4281C2.63179 16.6393 2.66312 16.8775 2.79688 17.06C2.93067 17.2424 3.14825 17.3443 3.37402 17.3305L3.7793 17.3002C4.62726 17.2265 5.44049 17.0856 6.23438 16.8764C6.84665 17.1788 7.50422 17.4101 8.19434 17.558C8.55329 17.6348 8.9064 17.4062 8.9834 17.0473C9.06036 16.6882 8.83177 16.3342 8.47266 16.2572C7.81451 16.1162 7.19288 15.8862 6.62305 15.5815C6.50913 15.5206 6.38084 15.4946 6.25391 15.5053L6.12793 15.5277C5.53715 15.6955 4.93256 15.819 4.30566 15.9027C4.33677 15.8053 4.36932 15.7081 4.39844 15.6098L4.52148 15.1664Z"></path>
-                          <path d="M15.7998 14.5365C15.5786 14.3039 15.2291 14.2666 14.9668 14.4301L14.8604 14.5131C13.9651 15.3633 12.8166 15.9809 11.5273 16.2572C11.1682 16.3342 10.9396 16.6882 11.0166 17.0473C11.0936 17.4062 11.4467 17.6348 11.8057 17.558C13.2388 17.2509 14.5314 16.5858 15.5713 15.6645L15.7754 15.477C16.0417 15.2241 16.0527 14.8028 15.7998 14.5365Z"></path>
-                          <path d="M2.23828 7.58927C1.97668 8.34847 1.83496 9.15958 1.83496 10.0004C1.835 10.736 1.94324 11.4483 2.14551 12.1234L2.23828 12.4106C2.35793 12.7576 2.73588 12.9421 3.08301 12.8227C3.3867 12.718 3.56625 12.4154 3.52637 12.1088L3.49512 11.977C3.2808 11.3549 3.16508 10.6908 3.16504 10.0004C3.16504 9.30977 3.28072 8.64514 3.49512 8.02286C3.61476 7.67563 3.43024 7.2968 3.08301 7.17716C2.73596 7.05778 2.35799 7.24232 2.23828 7.58927Z"></path>
-                          <path d="M16.917 12.8227C17.2641 12.9421 17.6421 12.7576 17.7617 12.4106C18.0233 11.6515 18.165 10.8411 18.165 10.0004C18.165 9.15958 18.0233 8.34847 17.7617 7.58927C17.642 7.24231 17.264 7.05778 16.917 7.17716C16.5698 7.2968 16.3852 7.67563 16.5049 8.02286C16.7193 8.64514 16.835 9.30977 16.835 10.0004C16.8349 10.6908 16.7192 11.3549 16.5049 11.977C16.3852 12.3242 16.5698 12.703 16.917 12.8227Z"></path>
-                          <path d="M8.9834 2.95255C8.90632 2.59374 8.55322 2.3651 8.19434 2.44181C6.76126 2.74892 5.46855 3.41405 4.42871 4.33536L4.22461 4.52286C3.95829 4.77577 3.94729 5.19697 4.2002 5.46329C4.42146 5.69604 4.77088 5.73328 5.0332 5.56973L5.13965 5.4877C6.03496 4.63748 7.18337 4.0189 8.47266 3.74259C8.83177 3.66563 9.06036 3.31166 8.9834 2.95255Z"></path>
-                          <path d="M15.5713 4.33536C14.5314 3.41405 13.2387 2.74892 11.8057 2.44181C11.4468 2.3651 11.0937 2.59374 11.0166 2.95255C10.9396 3.31166 11.1682 3.66563 11.5273 3.74259C12.7361 4.00163 13.8209 4.56095 14.6895 5.33048L14.8604 5.4877L14.9668 5.56973C15.2291 5.73327 15.5785 5.69604 15.7998 5.46329C16.0211 5.23026 16.0403 4.87903 15.8633 4.6254L15.7754 4.52286L15.5713 4.33536Z"></path>
-                        </svg>
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent
-                    side="bottom"
-                    className="bg-black text-white text-sm px-2 py-1 rounded"
-                  >
-                    {isTemporaryChat
-                      ? "Turn off temporary chat"
-                      : "Turn on temporary chat"}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </div>
+            <MobileHeader
+              isNavExpanded={isNavExpanded}
+              isTemporaryChat={isTemporaryChat}
+              onToggle={onToggle}
+              onTemporaryChatToggle={handleTemporaryChatToggle}
+            />
           )}
 
           {/* Chat Header - Medium and Desktop screens */}
@@ -1875,624 +1037,56 @@ export function MainContent({
             </div>
           )}
 
-          {/* Chat area */}
-          <div className="flex-1 overflow-y-auto min-h-0">
-            {messages.length === 0 ? (
-              // Empty state
-              <div
-                className={cn(
-                  "flex flex-col items-center h-full",
-                  isMobile ? "justify-start pt-8" : "justify-center"
-                )}
-              >
-                <div className="w-full flex flex-col items-center">
-                  <div
-                    className={cn("text-center", isMobile ? "mb-6" : "mb-8")}
-                  >
-                    {isTemporaryChat ? (
-                      <>
-                        <div className="text-2xl font-semibold text-white mb-4">
-                          Temporary Chat
-                        </div>
-                        <div className="text-sm text-gray-400 bg-gray-800 rounded-lg px-4 py-2 max-w-md mx-auto">
-                          This chat won't appear in history, use or update
-                          memory, or be used to train models. For safety
-                          purposes, we may keep a copy for 30 days.
-                        </div>
-                      </>
-                    ) : (
-                      <div
-                        className={cn(
-                          "text-2xl font-medium text-white",
-                          isMobile && "mt-20"
-                        )}
-                      >
-                        Ready when you are.
-                      </div>
-                    )}
-                  </div>
-                  {/* Input area (first prompt) */}
-                  <div
-                    className={cn(
-                      "w-full flex justify-center",
-                      isMobile
-                        ? "px-1"
-                        : useOverlayNav
-                        ? "px-4 max-w-full"
-                        : "px-6 max-w-4xl"
-                    )}
-                  >
-                    <div
-                      className={cn(isMobile ? "w-[95%]" : "w-full max-w-4xl")}
-                    >
-                      <div className="relative bg-[#2A2A2A] rounded-3xl border border-gray-700 flex items-center">
-                        <Button
-                          onClick={() => setIsFileDialogOpen(true)}
-                          className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg ml-3"
-                          size="icon"
-                        >
-                          <Plus className="w-5 h-5" />
-                        </Button>
-                        <Textarea
-                          ref={textareaRef}
-                          value={inputValue}
-                          onChange={handleInputChange}
-                          onKeyDown={handleKeyDown}
-                          placeholder="Message ChatGPT"
-                          className="flex-1 bg-transparent border-none text-white placeholder-gray-400 resize-none min-h-[24px] max-h-[200px] focus:ring-0 focus:outline-none text-base py-3 px-3"
-                          style={{ height: "auto", lineHeight: "24px" }}
-                          disabled={isLoading}
-                        />
-                        <div className="flex items-center mr-3 space-x-2">
-                          <Button
-                            className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg cursor-pointer"
-                            size="icon"
-                          >
-                            <Mic className="w-5 h-5" />
-                          </Button>
-                          {isLoading || isStreaming ? (
-                            <Button
-                              onClick={handleStopGeneration}
-                              size="icon"
-                              className="w-8 h-8 rounded-full bg-red-600 text-white hover:bg-red-700 transition-all"
-                              aria-label="Stop generation"
-                            >
-                              <Square className="w-4 h-4" />
-                            </Button>
-                          ) : (
-                            <Button
-                              onClick={() => handleSendMessage()}
-                              disabled={!inputValue.trim() || isLoading}
-                              size="icon"
-                              className={cn(
-                                "w-8 h-8 rounded-full transition-all",
-                                inputValue.trim() && !isLoading
-                                  ? "bg-white text-black hover:bg-gray-200"
-                                  : "bg-gray-600 text-gray-500"
-                              )}
-                              aria-label="Send message"
-                            >
-                              <svg
-                                width="20"
-                                height="20"
-                                viewBox="0 0 20 20"
-                                fill="white"
-                                xmlns="http://www.w3.org/2000/svg"
-                                color="white"
-                              >
-                                <path d="M7.167 15.416V4.583a.75.75 0 0 1 1.5 0v10.833a.75.75 0 0 1-1.5 0Zm4.166-2.5V7.083a.75.75 0 0 1 1.5 0v5.833a.75.75 0 0 1-1.5 0ZM3 11.25V8.75a.75.75 0 0 1 1.5 0v2.5a.75.75 0 0 1-1.5 0Zm12.5 0V8.75a.75.75 0 0 1 1.5 0v2.5a.75.75 0 0 1-1.5 0Z"></path>
-                              </svg>
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              // Messages
-              <div className="flex justify-center w-full mt-2 overflow-y-auto flex-1">
-                <div
-                  className={cn(
-                    "w-full h-full",
-                    isMobile
-                      ? "py-4 px-2"
-                      : useOverlayNav
-                      ? "py-6 px-4 max-w-full"
-                      : "py-6 px-4 max-w-4xl"
-                  )}
+          {/* Error display */}
+          {error && (
+            <div className="mx-auto w-full max-w-4xl px-4 mb-4">
+              <div className="bg-red-900/20 border border-red-500/50 text-red-400 px-4 py-2 rounded-lg flex items-center justify-between">
+                <span>{error}</span>
+                <button
+                  onClick={() => setError(null)}
+                  className="text-red-400 hover:text-red-300 ml-2"
                 >
-                  {messages.map((message) => {
-                    // Debug logging for each message being rendered
-                    if (message.role === 'assistant') {
-                      console.log('Rendering assistant message:', {
-                        id: message.id,
-                        content: message.content,
-                        hasContent: !!message.content?.trim(),
-                        contentLength: message.content?.length || 0
-                      });
-                    }
-                    
-                    return (
-                    <div key={message.id} className="mb-8">
-                      {message.role === "user" ? (
-                        // User message - right aligned pill
-                        <div className="flex flex-col items-end mb-6 group">
-                          <div
-                            className={cn(
-                              "bg-[#2f2f2f] text-white rounded-3xl p-3 text-base relative",
-                              editingMessageId == message.id && "w-full"
-                            )}
-                          >
-                            {editingMessageId === message.id ? (
-                              <div className="rounded-2xl p-2 w-full ">
-                                <Textarea
-                                  value={editContent}
-                                  onChange={(e) =>
-                                    setEditContent(e.target.value)
-                                  }
-                                  className="w-full bg-transparent border-none text-white placeholder-gray-400 resize-none min-h-[30px] max-h-[200px] focus:ring-0 focus:outline-none text-base p-1 mb-4"
-                                  autoFocus
-                                  placeholder="Edit your message..."
-                                />
-                                <div className="flex justify-end space-x-2">
-                                  <Button
-                                    onClick={handleCancelEdit}
-                                    disabled={isEditingSave}
-                                    className="bg-black hover:bg-[#4a4b4a] text-white border-none rounded-full px-4 py-2 h-8 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                                  >
-                                    Cancel
-                                  </Button>
-                                  <Button
-                                    onClick={() => handleSaveEdit(message.id)}
-                                    disabled={isEditingSave}
-                                    className="bg-white hover:bg-gray-100 text-black border-none rounded-full px-4 py-2 h-8 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                                  >
-                                    {isEditingSave ? "Saving..." : "Send"}
-                                  </Button>
-                                </div>
-                              </div>
-                            ) : (
-                              <>
-                                {/* File attachments */}
-                                {message.attachments &&
-                                  message.attachments.length > 0 && (
-                                    <div className="mb-3 space-y-2">
-                                      {message.attachments.map(
-                                        (attachment, index) => (
-                                          <div
-                                            key={index}
-                                            className="flex items-center gap-2 p-2 bg-[#404040] rounded-lg"
-                                          >
-                                            {attachment.mediaType.startsWith(
-                                              "image/"
-                                            ) ? (
-                                              <div className="w-16 h-16 rounded overflow-hidden bg-gray-600">
-                                                <img
-                                                  src={attachment.url}
-                                                  alt={attachment.name}
-                                                  className="w-full h-full object-cover"
-                                                  onError={(e) => {
-                                                    // Replace with file icon on error
-                                                    const imgElement =
-                                                      e.target as HTMLImageElement;
-                                                    imgElement.style.display =
-                                                      "none";
-                                                    const parent =
-                                                      imgElement.parentElement;
-                                                    if (parent) {
-                                                      parent.innerHTML =
-                                                        '<div class="w-10 h-10 rounded bg-gray-600 flex items-center justify-center"><svg class="h-6 w-6 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg></div>';
-                                                    }
-                                                  }}
-                                                />
-                                              </div>
-                                            ) : (
-                                              <div className="w-10 h-10 rounded bg-gray-600 flex items-center justify-center">
-                                                <FileText className="h-6 w-6 text-gray-300" />
-                                              </div>
-                                            )}
-                                            <div className="flex-1 min-w-0">
-                                              <p className="text-sm font-medium text-white truncate">
-                                                {attachment.name}
-                                              </p>
-                                              <p className="text-xs text-gray-400">
-                                                {(
-                                                  attachment.size / 1024
-                                                ).toFixed(1)}{" "}
-                                                KB
-                                              </p>
-                                            </div>
-                                          </div>
-                                        )
-                                      )}
-                                    </div>
-                                  )}
-                                <div className="whitespace-pre-wrap">
-                                  {message.content}
-                                </div>
-                                {/* Edit history for user messages */}
-                                {message.metadata?.editHistory && message.metadata.editHistory.length > 0 && (
-                                  <MessageEditHistory 
-                                    editHistory={message.metadata.editHistory} 
-                                    className="mt-2"
-                                  />
-                                )}
-                              </>
-                            )}
-                          </div>
-                          {/* Copy and Edit buttons for user messages - only visible on hover */}
-                          <div className="flex items-center mt-2 mr-2 space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Button
-                              onClick={() =>
-                                copyToClipboard(message.content, message.id)
-                              }
-                              className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
-                              size="icon"
-                            >
-                              {copiedMessageId === message.id ? (
-                                <span className="text-green-400 text-xs font-medium">
-                                  ✓
-                                </span>
-                              ) : (
-                                <Copy className="w-4 h-4" />
-                              )}
-                            </Button>
-                            <Button
-                              onClick={() =>
-                                handleEditMessage(message.id, message.content)
-                              }
-                              disabled={isSavingToMongoDB}
-                              className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
-                              size="icon"
-                              title={isSavingToMongoDB ? "Please wait for message to finish saving" : "Edit message"}
-                            >
-                              <Edit3 className="w-4 h-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        // AI message - left aligned with buttons
-                        <div className="flex flex-col">
-                          {/* Display image skeleton while generating or generated image if available */}
-                          {(generatingImageMessageIds.has(message.id) ||
-                            generatedImages[message.id]) && (
-                            <div className="mb-4">
-                              {generatingImageMessageIds.has(message.id) ? (
-                                // Show skeleton while generating
-                                <ImageSkeleton />
-                              ) : generatedImages[message.id] ? (
-                                // Show generated image
-                                <div className="bg-gray-800 rounded-lg p-4 max-w-lg">
-                                  <img
-                                    src={generatedImages[message.id].url}
-                                    alt="Generated image"
-                                    className="w-full h-auto rounded-lg"
-                                    onClick={() => {
-                                      onSetImage(
-                                        generatedImages[message.id].url
-                                      );
-                                    }}
-                                    style={{ cursor: "pointer" }}
-                                    onError={(e) => {
-                                      // Hide the broken image
-                                      (
-                                        e.target as HTMLImageElement
-                                      ).style.display = "none";
-                                      // Show error message
-                                      const errorDiv =
-                                        document.createElement("div");
-                                      errorDiv.className =
-                                        "text-red-400 text-sm p-2 bg-red-900/20 rounded";
-                                      errorDiv.textContent =
-                                        "Image failed to load";
-                                      (
-                                        e.target as HTMLImageElement
-                                      ).parentNode?.appendChild(errorDiv);
-                                    }}
-                                  />
-                                  <div className="mt-2 flex justify-end">
-                                    <Button
-                                      onClick={async () => {
-                                        try {
-                                          const imageUrl =
-                                            generatedImages[message.id].url;
-                                          const response = await fetch(
-                                            imageUrl
-                                          );
-                                          const blob = await response.blob();
-                                          const url = URL.createObjectURL(blob);
-                                          const a = document.createElement("a");
-                                          a.href = url;
-                                          a.download = `generated-image-${Date.now()}.png`;
-                                          document.body.appendChild(a);
-                                          a.click();
-                                          document.body.removeChild(a);
-                                          URL.revokeObjectURL(url);
-                                        } catch (error) {
-                                        }
-                                      }}
-                                      className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
-                                      size="icon"
-                                    >
-                                      <Download className="w-4 h-4" />
-                                    </Button>
-                                  </div>
-                                </div>
-                              ) : null}
-                            </div>
-                          )}
-
-                          <div className="text-white text-base leading-relaxed mb-3">
-                            <div className="prose prose-invert max-w-none">
-                              <ReactMarkdown
-                                remarkPlugins={[remarkGfm]}
-                                rehypePlugins={[rehypeHighlight]}
-                                components={{
-                                  code: ({
-                                    node,
-                                    className,
-                                    children,
-                                    ...props
-                                  }: any) => {
-                                    const inline = !className;
-                                    const match = /language-(\w+)/.exec(
-                                      className || ""
-                                    );
-                                    return !inline && match ? (
-                                      <pre className="bg-gray-800 rounded-lg p-4 overflow-x-auto">
-                                        <code className={className} {...props}>
-                                          {children}
-                                        </code>
-                                      </pre>
-                                    ) : (
-                                      <code
-                                        className="bg-gray-800 px-2 py-1 rounded text-sm"
-                                        {...props}
-                                      >
-                                        {children}
-                                      </code>
-                                    );
-                                  },
-                                  pre: ({ children }) => <div>{children}</div>,
-                                  p: ({ children }) => (
-                                    <p className="mb-4 last:mb-0">{children}</p>
-                                  ),
-                                  ul: ({ children }) => (
-                                    <ul className="list-disc pl-6 mb-4">
-                                      {children}
-                                    </ul>
-                                  ),
-                                  ol: ({ children }) => (
-                                    <ol className="list-decimal pl-6 mb-4">
-                                      {children}
-                                    </ol>
-                                  ),
-                                  li: ({ children }) => (
-                                    <li className="mb-2">{children}</li>
-                                  ),
-                                  blockquote: ({ children }) => (
-                                    <blockquote className="border-l-4 border-gray-600 pl-4 italic text-gray-300 mb-4">
-                                      {children}
-                                    </blockquote>
-                                  ),
-                                  h1: ({ children }) => (
-                                    <h1 className="text-2xl font-bold mb-4">
-                                      {children}
-                                    </h1>
-                                  ),
-                                  h2: ({ children }) => (
-                                    <h2 className="text-xl font-bold mb-3">
-                                      {children}
-                                    </h2>
-                                  ),
-                                  h3: ({ children }) => (
-                                    <h3 className="text-lg font-bold mb-2">
-                                      {children}
-                                    </h3>
-                                  ),
-                                  table: ({ children }) => (
-                                    <div className="overflow-x-auto mb-4">
-                                      <table className="min-w-full border border-gray-600">
-                                        {children}
-                                      </table>
-                                    </div>
-                                  ),
-                                  th: ({ children }) => (
-                                    <th className="border border-gray-600 px-4 py-2 bg-gray-800 font-bold text-left">
-                                      {children}
-                                    </th>
-                                  ),
-                                  td: ({ children }) => (
-                                    <td className="border border-gray-600 px-4 py-2">
-                                      {children}
-                                    </td>
-                                  ),
-                                }}
-                              >
-                                {message.content}
-                              </ReactMarkdown>
-                            </div>
-                          </div>
-
-                          {/* Action buttons for AI responses - only show when response is complete */}
-                          {!isStreaming &&
-                            !isLoading &&
-                            message.content.trim() && (
-                              <div className="flex items-center space-x-2 ml-0">
-                                <Button
-                                  onClick={() =>
-                                    copyToClipboard(message.content, message.id)
-                                  }
-                                  className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg transition-all duration-200"
-                                  size="icon"
-                                >
-                                  {copiedMessageId === message.id ? (
-                                    <span className="text-green-400 text-xs font-medium animate-pulse">
-                                      ✓
-                                    </span>
-                                  ) : (
-                                    <Copy className="w-4 h-4" />
-                                  )}
-                                </Button>
-                                <Button
-                                  onClick={() => handleLikeMessage(message.id)}
-                                  className={cn(
-                                    "h-8 w-8 p-0 bg-transparent hover:bg-gray-700 rounded-lg transition-all duration-200 transform hover:scale-110",
-                                    likedMessages.has(message.id)
-                                      ? "text-blue-400 hover:text-blue-300"
-                                      : "text-gray-400 hover:text-white"
-                                  )}
-                                  size="icon"
-                                >
-                                  <ThumbsUp
-                                    className={cn(
-                                      "w-4 h-4 transition-all duration-200",
-                                      likedMessages.has(message.id) &&
-                                        "animate-bounce"
-                                    )}
-                                  />
-                                </Button>
-                                <Button
-                                  onClick={() =>
-                                    handleDislikeMessage(message.id)
-                                  }
-                                  className={cn(
-                                    "h-8 w-8 p-0 bg-transparent hover:bg-gray-700 rounded-lg transition-all duration-200 transform hover:scale-110",
-                                    dislikedMessages.has(message.id)
-                                      ? "text-red-400 hover:text-red-300"
-                                      : "text-gray-400 hover:text-white"
-                                  )}
-                                  size="icon"
-                                >
-                                  <ThumbsDown
-                                    className={cn(
-                                      "w-4 h-4 transition-all duration-200",
-                                      dislikedMessages.has(message.id) &&
-                                        "animate-bounce"
-                                    )}
-                                  />
-                                </Button>
-                                <Button
-                                  onClick={() =>
-                                    handleRegenerateResponse(message.id)
-                                  }
-                                  className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
-                                  size="icon"
-                                >
-                                  <RefreshCw className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                  className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
-                                  size="icon"
-                                >
-                                  <Share className="w-4 h-4" />
-                                </Button>
-                              </div>
-                            )}
-                        </div>
-                      )}
-                    </div>
-                  )})}
-
-                  {isLoading && !isGeneratingImage && (
-                    <div className="text-gray-400 text-sm animate-pulse">
-                      ChatGPT is thinking…
-                    </div>
-                  )}
-
-                  <div ref={messagesEndRef} />
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Bottom input bar */}
-          {messages.length > 0 && (
-            <div className="bg-[#212121] sticky bottom-0 z-10">
-              <div className="flex justify-center w-full">
-                <div
-                  className={cn(
-                    "w-full py-4 flex justify-center",
-                    isMobile
-                      ? "px-1"
-                      : useOverlayNav
-                      ? "px-4 max-w-full"
-                      : "px-4 max-w-4xl"
-                  )}
-                >
-                  <div
-                    className={cn(isMobile ? "w-[95%]" : "w-full max-w-4xl")}
-                  >
-                    <div className="relative bg-[#2A2A2A] rounded-3xl border border-gray-700 flex items-center">
-                      <Button
-                        onClick={() => setIsFileDialogOpen(true)}
-                        className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg ml-3"
-                        size="icon"
-                      >
-                        <Plus className="w-5 h-5" />
-                      </Button>
-                      <Textarea
-                        ref={textareaRef}
-                        value={inputValue}
-                        onChange={handleInputChange}
-                        onKeyDown={handleKeyDown}
-                        placeholder="Message ChatGPT"
-                        className="flex-1 bg-transparent border-none text-white placeholder-gray-400 resize-none min-h-[24px] max-h-[200px] focus:ring-0 focus:outline-none text-base py-3 px-3"
-                        style={{ height: "auto", lineHeight: "24px" }}
-                        disabled={isLoading}
-                      />
-                      <div className="flex items-center mr-3 space-x-2">
-                        <Button
-                          className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
-                          size="icon"
-                        >
-                          <Mic className="w-5 h-5" />
-                        </Button>
-                        {isLoading || isStreaming ? (
-                          <Button
-                            onClick={handleStopGeneration}
-                            size="icon"
-                            className="w-8 h-8 rounded-full bg-red-600 text-white hover:bg-red-700 transition-all"
-                            aria-label="Stop generation"
-                          >
-                            <Square className="w-4 h-4" />
-                          </Button>
-                        ) : (
-                          <Button
-                            onClick={() => handleSendMessage()}
-                            disabled={!inputValue.trim() || isLoading}
-                            size="icon"
-                            className={cn(
-                              "w-8 h-8 rounded-full transition-all",
-                              inputValue.trim() && !isLoading
-                                ? "bg-white text-black hover:bg-gray-200"
-                                : "bg-gray-600 text-gray-500 cursor-not-allowed"
-                            )}
-                            aria-label="Send message"
-                          >
-                            <ArrowUp className="w-4 h-4" />
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Status indicator */}
-                  <div className="text-center mt-3 text-xs text-gray-500">
-                    {isTemporaryChat ? (
-                      <div className="flex items-center justify-center gap-2"></div>
-                    ) : isSignedIn ? (
-                      <div className="flex items-center justify-center gap-2"></div>
-                    ) : (
-                      <span>⚠️ Sign in to save your chat history</span>
-                    )}
-                  </div>
-                </div>
+                  ×
+                </button>
               </div>
             </div>
           )}
+
+          {/* Chat area */}
+          <ChatArea
+            messages={messages}
+            isLoading={isLoading}
+            isStreaming={isStreamingLocal}
+            isGeneratingImage={isGeneratingImage}
+            isTemporaryChat={isTemporaryChat}
+            isSignedIn={isSignedIn || false}
+            inputValue={inputValue}
+            editingMessageId={editingMessageId}
+            editContent={editContent}
+            isEditingSave={isEditingSave}
+            copiedMessageId={copiedMessageId}
+            likedMessages={likedMessages}
+            dislikedMessages={dislikedMessages}
+            isSavingToMongoDB={isSavingToMongoDB}
+            generatingImageMessageIds={generatingImageMessageIds}
+            generatedImages={generatedImages}
+            failedMessageIds={failedMessageIds}
+            textareaRef={textareaRef}
+            onEditMessage={handleEditMessage}
+            onSaveEdit={handleSaveEdit}
+            onCancelEdit={handleCancelEdit}
+            onCopyToClipboard={copyToClipboard}
+            onEditContentChange={setEditContent}
+            onLikeMessage={handleLikeMessage}
+            onDislikeMessage={handleDislikeMessage}
+            onRegenerateResponse={handleRegenerateResponse}
+            onSetImage={onSetImage}
+            onInputChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            onSendMessage={handleSendMessage}
+            onStopGeneration={handleStopGeneration}
+            onFileDialogOpen={() => setIsFileDialogOpen(true)}
+          />
         </div>
       )}
 
@@ -2500,7 +1094,7 @@ export function MainContent({
       <FileUploadDialog
         isOpen={isFileDialogOpen}
         onClose={() => setIsFileDialogOpen(false)}
-        onFilesSelected={handleFilesSelected}
+        onFilesSelected={handleFilesSelected as any}
       />
     </div>
   );
