@@ -20,6 +20,9 @@ export interface MessageMetadata {
   tokens?: number;
   imageGenerated?: boolean;
   regenerated?: boolean;
+  isStreaming?: boolean;
+  generatedImageUrl?: string;
+  generatedImagePublicId?: string;
   editHistory?: Array<{
     content: string;
     timestamp: Date;

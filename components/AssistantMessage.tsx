@@ -66,16 +66,17 @@ export function AssistantMessage({
   onRegenerateResponse,
   onSetImage,
 }: AssistantMessageProps) {
+  // Debug logs
+  console.log('AssistantMessage render:', {
+    messageId: message.id,
+    hasGeneratingId: generatingImageMessageIds.has(message.id),
+    hasGeneratedImage: !!generatedImages[message.id],
+    generatedImage: generatedImages[message.id],
+    allGeneratedImages: Object.keys(generatedImages)
+  });
+
   return (
     <div className="flex flex-col">
-      {/* Debug logs */}
-      {console.log('AssistantMessage render:', {
-        messageId: message.id,
-        hasGeneratingId: generatingImageMessageIds.has(message.id),
-        hasGeneratedImage: !!generatedImages[message.id],
-        generatedImage: generatedImages[message.id],
-        allGeneratedImages: Object.keys(generatedImages)
-      })}
       
       {/* Display image skeleton while generating or generated image if available */}
       {(generatingImageMessageIds.has(message.id) ||
@@ -87,30 +88,33 @@ export function AssistantMessage({
           ) : generatedImages[message.id] ? (
             // Show generated image
             <>
-              {console.log('Rendering image div for:', message.id, generatedImages[message.id])}
+              {(() => {
+                console.log('Rendering image div for:', message.id, generatedImages[message.id]);
+                return null;
+              })()}
               <div className="bg-gray-800 rounded-lg p-4 max-w-lg">
                 <img
                   src={generatedImages[message.id].url}
                   alt="Generated image"
                   className="w-full h-auto rounded-lg"
                   onLoad={() => console.log('Image loaded successfully:', generatedImages[message.id].url)}
-                  onError={(e) => console.error('Image load error:', e, generatedImages[message.id].url)}
+                  onError={(e) => {
+                    console.error('Image load error:', e, generatedImages[message.id].url);
+                    // Hide the broken image
+                    (e.target as HTMLImageElement).style.display = "none";
+                    // Show error message
+                    const errorDiv = document.createElement("div");
+                    errorDiv.className =
+                      "text-red-400 text-sm p-2 bg-red-900/20 rounded";
+                    errorDiv.textContent = "Image failed to load";
+                    (e.target as HTMLImageElement).parentNode?.appendChild(
+                      errorDiv
+                    );
+                  }}
                 onClick={() => {
                   onSetImage(generatedImages[message.id].url);
                 }}
                 style={{ cursor: "pointer" }}
-                onError={(e) => {
-                  // Hide the broken image
-                  (e.target as HTMLImageElement).style.display = "none";
-                  // Show error message
-                  const errorDiv = document.createElement("div");
-                  errorDiv.className =
-                    "text-red-400 text-sm p-2 bg-red-900/20 rounded";
-                  errorDiv.textContent = "Image failed to load";
-                  (e.target as HTMLImageElement).parentNode?.appendChild(
-                    errorDiv
-                  );
-                }}
               />
               <div className="mt-2 flex justify-end">
                 <Button

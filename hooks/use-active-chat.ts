@@ -93,7 +93,7 @@ export function useActiveChat(initialChatId?: string) {
             attachments: msg.attachments || [],
             metadata: msg.metadata,
           }))
-          .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime()),
+          .sort((a: any, b: any) => a.timestamp.getTime() - b.timestamp.getTime()),
         createdAt: new Date(chatData.createdAt),
         updatedAt: new Date(chatData.updatedAt),
       }

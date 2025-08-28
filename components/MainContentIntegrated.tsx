@@ -36,6 +36,8 @@ interface Message {
     imageGenerated?: boolean;
     regenerated?: boolean;
     isStreaming?: boolean;
+    generatedImageUrl?: string;
+    generatedImagePublicId?: string;
     editHistory?: Array<{
       content: string;
       timestamp: Date;
@@ -518,7 +520,7 @@ export function MainContent({
         setLocalMessages((prev) => [...prev, userMessage]);
         
         const newChatId = await createNewChat(userMessage.content.slice(0, 50));
-        currentChatId = newChatId; // Update the chat ID to use for image generation
+        currentChatId = newChatId ?? undefined; // Update the chat ID to use for image generation
         if (newChatId && onChatCreated) {
           onChatCreated(newChatId);
         }
