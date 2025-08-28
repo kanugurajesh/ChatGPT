@@ -68,6 +68,15 @@ export function AssistantMessage({
 }: AssistantMessageProps) {
   return (
     <div className="flex flex-col">
+      {/* Debug logs */}
+      {console.log('AssistantMessage render:', {
+        messageId: message.id,
+        hasGeneratingId: generatingImageMessageIds.has(message.id),
+        hasGeneratedImage: !!generatedImages[message.id],
+        generatedImage: generatedImages[message.id],
+        allGeneratedImages: Object.keys(generatedImages)
+      })}
+      
       {/* Display image skeleton while generating or generated image if available */}
       {(generatingImageMessageIds.has(message.id) ||
         generatedImages[message.id]) && (
@@ -77,11 +86,15 @@ export function AssistantMessage({
             <ImageSkeleton />
           ) : generatedImages[message.id] ? (
             // Show generated image
-            <div className="bg-gray-800 rounded-lg p-4 max-w-lg">
-              <img
-                src={generatedImages[message.id].url}
-                alt="Generated image"
-                className="w-full h-auto rounded-lg"
+            <>
+              {console.log('Rendering image div for:', message.id, generatedImages[message.id])}
+              <div className="bg-gray-800 rounded-lg p-4 max-w-lg">
+                <img
+                  src={generatedImages[message.id].url}
+                  alt="Generated image"
+                  className="w-full h-auto rounded-lg"
+                  onLoad={() => console.log('Image loaded successfully:', generatedImages[message.id].url)}
+                  onError={(e) => console.error('Image load error:', e, generatedImages[message.id].url)}
                 onClick={() => {
                   onSetImage(generatedImages[message.id].url);
                 }}
@@ -125,7 +138,16 @@ export function AssistantMessage({
                 </Button>
               </div>
             </div>
-          ) : null}
+            </>
+          ) : (
+            <>
+              {console.log('NOT rendering image - conditions:', {
+                hasGeneratingId: generatingImageMessageIds.has(message.id),
+                hasGeneratedImage: !!generatedImages[message.id],
+                generatedImage: generatedImages[message.id]
+              })}
+            </>
+          )}
         </div>
       )}
 

@@ -127,6 +127,11 @@ export function MainContent({
   const [generatedImages, setGeneratedImages] = useState<{
     [messageId: string]: { url: string; publicId: string };
   }>({});
+
+  // Debug generatedImages state changes
+  useEffect(() => {
+    console.log('generatedImages state changed:', generatedImages);
+  }, [generatedImages]);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [generatingImageMessageIds, setGeneratingImageMessageIds] = useState<
     Set<string>
@@ -190,6 +195,8 @@ export function MainContent({
         tokens: msg.metadata?.tokens,
         imageGenerated: msg.metadata?.imageGenerated,
         regenerated: msg.metadata?.regenerated,
+        generatedImageUrl: msg.metadata?.generatedImageUrl,
+        generatedImagePublicId: msg.metadata?.generatedImagePublicId,
         editHistory: msg.metadata?.editHistory?.map((edit: any) => ({
           content: edit.content,
           timestamp: new Date(edit.timestamp),
@@ -233,6 +240,53 @@ export function MainContent({
     return sortedMessages;
   }, [activeChat?.messages, localMessages, pendingMessages, streamingMessage]);
 
+  // Restore generatedImages from database only when opening chat from history (after refresh)
+  useEffect(() => {
+    // Only restore if:
+    // 1. We have activeChat messages from database
+    // 2. generatedImages is empty (indicates page refresh)
+    // 3. Not currently generating an image
+    console.log('Checking for image restoration:', {
+      hasMessages: !!activeChat?.messages,
+      messagesLength: activeChat?.messages?.length || 0,
+      generatedImagesEmpty: Object.keys(generatedImages).length === 0,
+      isGeneratingImage,
+      messages: activeChat?.messages?.map(msg => ({
+        id: msg.id,
+        hasImageUrl: !!msg.metadata?.generatedImageUrl,
+        hasPublicId: !!msg.metadata?.generatedImagePublicId,
+        imageUrl: msg.metadata?.generatedImageUrl,
+        publicId: msg.metadata?.generatedImagePublicId
+      }))
+    });
+    
+    if (activeChat?.messages && Object.keys(generatedImages).length === 0 && !isGeneratingImage) {
+      const restoredImages: { [messageId: string]: { url: string; publicId: string } } = {};
+      
+      activeChat.messages.forEach(msg => {
+        if (msg.metadata?.generatedImageUrl && msg.metadata?.generatedImagePublicId) {
+          restoredImages[msg.id] = {
+            url: msg.metadata.generatedImageUrl,
+            publicId: msg.metadata.generatedImagePublicId
+          };
+          console.log('Found image to restore:', {
+            messageId: msg.id,
+            url: msg.metadata.generatedImageUrl,
+            publicId: msg.metadata.generatedImagePublicId
+          });
+        }
+      });
+      
+      // Restore images if any were found
+      if (Object.keys(restoredImages).length > 0) {
+        console.log('Restoring images from database:', restoredImages);
+        setGeneratedImages(restoredImages);
+      } else {
+        console.log('No images found to restore');
+      }
+    }
+  }, [activeChat?.messages, generatedImages, isGeneratingImage]);
+
   // Handle pending messages when activeChat becomes available after creation
   useEffect(() => {
     const handlePendingMessages = async () => {
@@ -253,8 +307,10 @@ export function MainContent({
           
           if (success) {
             setPendingUserMessage(null);
-            // Remove from local messages if it was added there
-            setLocalMessages(prev => prev.filter(m => m.id !== pendingUserMessage.id));
+            // Don't remove from local messages during image generation to maintain message order
+            if (!isGeneratingImage) {
+              setLocalMessages(prev => prev.filter(m => m.id !== pendingUserMessage.id));
+            }
           }
         }
         
@@ -271,15 +327,48 @@ export function MainContent({
           
           if (success) {
             setPendingAssistantMessage(null);
-            // Remove from local messages if it was added there
-            setLocalMessages(prev => prev.filter(m => m.id !== pendingAssistantMessage.id));
+            // Don't remove from local messages during image generation to maintain message order
+            if (!isGeneratingImage) {
+              setLocalMessages(prev => prev.filter(m => m.id !== pendingAssistantMessage.id));
+            }
+          }
+        }
+
+        // Save any additional pending messages (like image generation assistant messages)
+        if (pendingMessages.length > 0) {
+          console.log('Saving pending messages to newly created chat:', pendingMessages.length);
+          for (const message of pendingMessages) {
+            console.log('Saving pending message with metadata:', {
+              id: message.id,
+              metadata: message.metadata,
+              hasImageUrl: !!message.metadata?.generatedImageUrl,
+              hasPublicId: !!message.metadata?.generatedImagePublicId
+            });
+            
+            const success = await addMessage(
+              message.role,
+              message.content,
+              message.metadata,
+              false,
+              message.id
+            );
+            
+            console.log('Pending message save result:', success);
+            
+            if (success) {
+              setPendingMessages(prev => prev.filter(m => m.id !== message.id));
+              // Don't remove from local messages during image generation to maintain message order
+              if (!isGeneratingImage) {
+                setLocalMessages(prev => prev.filter(m => m.id !== message.id));
+              }
+            }
           }
         }
       }
     };
     
     handlePendingMessages();
-  }, [activeChat?.id, isTemporaryChat, pendingUserMessage, pendingAssistantMessage, addMessage]);
+  }, [activeChat?.id, isTemporaryChat, pendingUserMessage, pendingAssistantMessage, pendingMessages, addMessage, isGeneratingImage]);
 
   // Handle file selection from dialog
   const handleFilesSelected = async (files: File[]) => {
@@ -344,28 +433,48 @@ export function MainContent({
   // Image generation helper
   const generateImageWithFlux = async (
     prompt: string,
-    messageId: string
+    messageId: string,
+    chatId: string | undefined
   ): Promise<string> => {
     try {
-      const response = await fetch("/api/generate-image", {
+      if (!chatId) {
+        throw new Error("Chat ID is required for image generation");
+      }
+      
+      const response = await fetch("/api/images/generate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ 
+          prompt, 
+          chatId: chatId,
+          messageId 
+        }),
       });
 
       if (!response.ok) {
-        throw new Error("Failed to generate image");
+        const errorData = await response.text();
+        console.error('Image generation API error:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorData
+        });
+        throw new Error(`Failed to generate image: ${response.status} - ${errorData}`);
       }
 
-      const { imageUrl, publicId } = await response.json();
+      const { imageUrl, cloudinaryPublicId } = await response.json();
 
       // Store the generated image with its public ID
-      setGeneratedImages((prev) => ({
-        ...prev,
-        [messageId]: { url: imageUrl, publicId },
-      }));
+      console.log('Storing generated image:', { messageId, imageUrl, cloudinaryPublicId });
+      setGeneratedImages((prev) => {
+        const newState = {
+          ...prev,
+          [messageId]: { url: imageUrl, publicId: cloudinaryPublicId },
+        };
+        console.log('Updated generatedImages state:', newState);
+        return newState;
+      });
 
       return imageUrl;
     } catch (error) {
@@ -399,6 +508,7 @@ export function MainContent({
       };
 
       let chatForSaving = activeChat;
+      let currentChatId = activeChatId;
       
       // If no active chat exists and not temporary, create one
       if (!activeChat && !isTemporaryChat) {
@@ -408,6 +518,7 @@ export function MainContent({
         setLocalMessages((prev) => [...prev, userMessage]);
         
         const newChatId = await createNewChat(userMessage.content.slice(0, 50));
+        currentChatId = newChatId; // Update the chat ID to use for image generation
         if (newChatId && onChatCreated) {
           onChatCreated(newChatId);
         }
@@ -454,60 +565,104 @@ export function MainContent({
 
       if (isImageRequest) {
         setIsGeneratingImage(true);
+        
+        // Create assistant message first to get its ID for image association
+        const assistantMessage: Message = {
+          id: `msg_${Date.now() + 1}_${Math.random().toString(36).substr(2, 9)}`,
+          content: "I've generated an image based on your request.",
+          role: "assistant",
+          timestamp: new Date(),
+          metadata: {
+            imageGenerated: true,
+          },
+        };
+
+        // Add assistant message to local messages immediately for proper ordering
+        setLocalMessages((prev) => [...prev, assistantMessage]);
+
         setGeneratingImageMessageIds(
-          (prev) => new Set([...prev, userMessage.id])
+          (prev) => new Set([...prev, assistantMessage.id])
         );
 
         try {
-          await generateImageWithFlux(messageContent, userMessage.id);
+          const imageUrl = await generateImageWithFlux(messageContent, assistantMessage.id, currentChatId);
 
-          // Create assistant message acknowledging the image generation
-          const assistantMessage: Message = {
-            id: `msg_${Date.now() + 1}_${Math.random().toString(36).substr(2, 9)}`,
-            content: "I've generated an image based on your request.",
-            role: "assistant",
-            timestamp: new Date(),
-            metadata: {
-              imageGenerated: true,
-            },
-          };
+          // Clear generating state after successful image generation
+          setGeneratingImageMessageIds((prev) => {
+            const newSet = new Set(prev);
+            newSet.delete(assistantMessage.id);
+            return newSet;
+          });
 
-          // Save assistant message to database or local state
-          if (!isTemporaryChat && activeChat) {
-            setPendingMessages((prev) => [...prev, assistantMessage]);
-            const success = await addMessage(
-              assistantMessage.role,
-              assistantMessage.content,
-              assistantMessage.metadata,
-              false,
-              assistantMessage.id
-            );
+          // Get the image data immediately after generation
+          // Access the fresh generatedImages state through a callback
+          setGeneratedImages((currentImages) => {
+            const imageData = currentImages[assistantMessage.id];
+            console.log('Preparing to save image metadata to database:', {
+              messageId: assistantMessage.id,
+              imageData,
+              currentChatId,
+              isTemporaryChat
+            });
             
-            if (success) {
-              setPendingMessages((prev) => prev.filter(m => m.id !== assistantMessage.id));
-              setFailedMessageIds((prev) => {
-                const newSet = new Set(prev);
-                newSet.delete(assistantMessage.id);
-                return newSet;
-              });
-            } else {
-              console.error('Failed to save image generation message to database');
-              setError('Failed to save image generation message.');
-              setFailedMessageIds((prev) => new Set([...prev, assistantMessage.id]));
+            if (imageData && !isTemporaryChat && currentChatId) {
+              const updatedAssistantMessage = {
+                ...assistantMessage,
+                metadata: {
+                  ...assistantMessage.metadata,
+                  generatedImageUrl: imageData.url,
+                  generatedImagePublicId: imageData.publicId,
+                }
+              };
+
+              console.log('Updated assistant message for database:', updatedAssistantMessage);
+              setPendingMessages((prev) => [...prev, updatedAssistantMessage]);
             }
-          } else {
-            setLocalMessages((prev) => [...prev, assistantMessage]);
-          }
+            
+            return currentImages; // Return unchanged state
+          });
+          
+          // Note: Assistant message already added to localMessages above for immediate display
         } catch (error) {
           console.error("Error generating image:", error);
+          
           // Remove from generating set if failed
           setGeneratingImageMessageIds((prev) => {
             const newSet = new Set(prev);
-            newSet.delete(userMessage.id);
+            newSet.delete(assistantMessage.id);
             return newSet;
           });
+
+          // Update assistant message to show error
+          const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+          const updatedAssistantMessage = {
+            ...assistantMessage,
+            content: `Sorry, I couldn't generate the image. Error: ${errorMessage}`
+          };
+
+          // Update the message in localMessages
+          setLocalMessages((prev) => 
+            prev.map(msg => 
+              msg.id === assistantMessage.id ? updatedAssistantMessage : msg
+            )
+          );
+
+          setError(`Failed to generate image: ${errorMessage}`);
         } finally {
           setIsGeneratingImage(false);
+          
+          // Clean up local messages after image generation completes
+          // Only clear if we have database messages and no pending messages
+          setTimeout(() => {
+            if (activeChat?.messages && pendingMessages.length === 0) {
+              // Only remove messages that exist in database to avoid duplicates
+              setLocalMessages(prev => 
+                prev.filter(localMsg => 
+                  !activeChat.messages.some(dbMsg => dbMsg.id === localMsg.id)
+                )
+              );
+            }
+          }, 500); // Increased timeout to ensure database messages are loaded
         }
       } else {
         // Prepare context for API call
@@ -920,8 +1075,8 @@ export function MainContent({
 
   const handleTemporaryChatToggle = (enabled: boolean) => {
     setIsTemporaryChat(enabled);
-    // Clear all message state when toggling temporary chat
-    if (enabled) {
+    // Clear all message state when toggling temporary chat (unless generating image)
+    if (enabled && !isGeneratingImage) {
       setLocalMessages([]);
       setPendingMessages([]);
       setStreamingMessage(null);
@@ -946,9 +1101,13 @@ export function MainContent({
     };
   }, [abortController]);
 
-  // Clear all message state when activeChatId changes
+  // Clear all message state when activeChatId changes, but preserve during image generation
   useEffect(() => {
-    setLocalMessages([]); // Clear local messages from previous chat
+    // Don't clear local messages if we're currently generating an image
+    if (!isGeneratingImage) {
+      setLocalMessages([]); // Clear local messages from previous chat
+      // Don't clear generatedImages - they should persist for the session
+    }
     setPendingMessages([]);
     setStreamingMessage(null);
     setError(null);
@@ -956,7 +1115,7 @@ export function MainContent({
     setStreamingContent("");
     setCurrentStreamingId(null);
     setIsStreamingLocal(false);
-  }, [activeChatId]);
+  }, [activeChatId, isGeneratingImage]);
 
   // Load chat when activeChatId changes, or clear when undefined
   useEffect(() => {
@@ -991,7 +1150,7 @@ export function MainContent({
         setIsLoading(false);
         setEditingMessageId(null);
         setEditContent("");
-        setGeneratedImages({});
+        // Don't clear generated images - they should persist for the session
         setIsGeneratingImage(false);
         setGeneratingImageMessageIds(new Set());
         setAbortController(null);
