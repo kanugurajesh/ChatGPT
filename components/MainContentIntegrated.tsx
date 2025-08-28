@@ -163,7 +163,7 @@ export function MainContent({
     clearActiveChat,
   } = useActiveChat(activeChatId);
 
-  const { fetchChatHistory } = useChatHistory();
+  const { fetchChatHistory, createNewChat: createChatInHistory } = useChatHistory();
 
   // Derive messages from active chat
   const [localMessages, setLocalMessages] = useState<Message[]>([]);
@@ -293,7 +293,18 @@ export function MainContent({
   useEffect(() => {
     const handlePendingMessages = async () => {
       if (activeChat && !isTemporaryChat) {
-        // Save pending user message
+        // Clean up local messages that are now in the database (like initial messages)
+        // Only do this if we have database messages and no pending operations
+        if (activeChat.messages.length > 0 && !pendingUserMessage && !pendingAssistantMessage && pendingMessages.length === 0 && !isGeneratingImage) {
+          // Remove any local messages that already exist in the database
+          setLocalMessages(prev => 
+            prev.filter(localMsg => 
+              !activeChat.messages.some(dbMsg => dbMsg.id === localMsg.id)
+            )
+          );
+        }
+        
+        // Save pending user message (this shouldn't happen for initial messages now)
         if (pendingUserMessage) {
           console.log('Saving pending user message to newly created chat');
           const success = await addMessage(
@@ -312,6 +323,12 @@ export function MainContent({
             // Don't remove from local messages during image generation to maintain message order
             if (!isGeneratingImage) {
               setLocalMessages(prev => prev.filter(m => m.id !== pendingUserMessage.id));
+            }
+            // Emit event to update message count in sidebar
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('messageAdded', { 
+                detail: { chatId: activeChat.id, increment: 1 } 
+              }));
             }
           }
         }
@@ -332,6 +349,12 @@ export function MainContent({
             // Don't remove from local messages during image generation to maintain message order
             if (!isGeneratingImage) {
               setLocalMessages(prev => prev.filter(m => m.id !== pendingAssistantMessage.id));
+            }
+            // Emit event to update message count in sidebar
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('messageAdded', { 
+                detail: { chatId: activeChat.id, increment: 1 } 
+              }));
             }
           }
         }
@@ -362,6 +385,12 @@ export function MainContent({
               // Don't remove from local messages during image generation to maintain message order
               if (!isGeneratingImage) {
                 setLocalMessages(prev => prev.filter(m => m.id !== message.id));
+              }
+              // Emit event to update message count in sidebar
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('messageAdded', { 
+                  detail: { chatId: activeChat.id, increment: 1 } 
+                }));
               }
             }
           }
@@ -514,17 +543,27 @@ export function MainContent({
       
       // If no active chat exists and not temporary, create one
       if (!activeChat && !isTemporaryChat) {
-        // Store the user message as pending until chat is created
-        setPendingUserMessage(userMessage);
         // Add to local messages for immediate UI feedback
         setLocalMessages((prev) => [...prev, userMessage]);
         
-        const newChatId = await createNewChat(userMessage.content.slice(0, 50));
+        // Create chat using the history hook (which updates the sidebar immediately)
+        // The initialMessage will be automatically saved in the database by the ChatService
+        console.log('Creating new chat with initial message...');
+        const newChatId = await createChatInHistory({
+          title: userMessage.content.slice(0, 50),
+          initialMessage: {
+            role: userMessage.role,
+            content: userMessage.content
+          }
+        });
+        
+        console.log('New chat created with ID:', newChatId);
         currentChatId = newChatId ?? undefined; // Update the chat ID to use for image generation
         if (newChatId && onChatCreated) {
+          console.log('Calling onChatCreated callback...');
           onChatCreated(newChatId);
         }
-        // The useEffect will handle saving the pending message when activeChat is available
+        // Don't set pendingUserMessage since the message is already saved in the database via initialMessage
       } else if (!isTemporaryChat && activeChat) {
         // Existing chat - save normally
         setPendingMessages((prev) => [...prev, userMessage]);
@@ -549,6 +588,12 @@ export function MainContent({
             newSet.delete(userMessage.id);
             return newSet;
           });
+          // Emit event to update message count in sidebar
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('messageAdded', { 
+              detail: { chatId: activeChat.id, increment: 1 } 
+            }));
+          }
         } else {
           // Mark message as failed
           console.error('Failed to save user message to database');
@@ -801,6 +846,12 @@ export function MainContent({
                   newSet.delete(finalAssistantMessage.id);
                   return newSet;
                 });
+                // Emit event to update message count in sidebar
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('messageAdded', { 
+                    detail: { chatId: activeChat.id, increment: 1 } 
+                  }));
+                }
               } else {
                 console.error('Failed to save assistant message to database');
                 setError('Failed to save response. The conversation may not be saved.');

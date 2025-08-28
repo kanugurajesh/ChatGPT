@@ -48,7 +48,7 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
   const [chatToDelete, setChatToDelete] = useState<{id: string, title: string} | null>(null)
   const { isMobile, useOverlayNav } = useResponsive()
   const { user, isSignedIn, isLoaded } = useUser()
-  const { chatHistory, isLoading: chatHistoryLoading, error: chatHistoryError, deleteChat, updateChatTitle } = useChatHistory()
+  const { chatHistory, isLoading: chatHistoryLoading, error: chatHistoryError, deleteChat, updateChatTitle, fetchChatHistory, updateChatMessageCount } = useChatHistory()
 
   const handleSearchClick = () => {
     setIsSearchOpen(true)
@@ -108,6 +108,29 @@ export function LeftNavigation({ isExpanded, onToggle, onClose, onImageClick, on
     setDeleteDialogOpen(false)
     setChatToDelete(null)
   }
+
+  // Listen for chat creation events to refresh the sidebar immediately
+  useEffect(() => {
+    const handleChatCreated = () => {
+      console.log('Chat created event received, refreshing chat history');
+      fetchChatHistory();
+    };
+
+    const handleMessageAdded = (event: any) => {
+      const { chatId, increment = 1 } = event.detail;
+      console.log('Message added event received, updating count for chat:', chatId, 'increment:', increment);
+      updateChatMessageCount(chatId, increment);
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('chatCreated', handleChatCreated);
+      window.addEventListener('messageAdded', handleMessageAdded);
+      return () => {
+        window.removeEventListener('chatCreated', handleChatCreated);
+        window.removeEventListener('messageAdded', handleMessageAdded);
+      };
+    }
+  }, [fetchChatHistory, updateChatMessageCount]);
 
   // Keyboard shortcuts
   useEffect(() => {

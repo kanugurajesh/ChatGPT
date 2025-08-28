@@ -237,6 +237,21 @@ export function useChatHistory() {
     fetchChatHistory()
   }, [fetchChatHistory])
 
+  // Update message count for a specific chat
+  const updateChatMessageCount = useCallback((chatId: string, increment: number = 1) => {
+    setChatHistory(prev => 
+      prev.map(chat => 
+        chat.id === chatId 
+          ? { 
+              ...chat, 
+              messageCount: (chat.messageCount || 0) + increment,
+              updatedAt: new Date() // Update timestamp to reflect recent activity
+            }
+          : chat
+      )
+    )
+  }, [])
+
   // Helper functions for backward compatibility
   const addChatToHistory = (title: string) => {
     createNewChat({ title })
@@ -263,6 +278,9 @@ export function useChatHistory() {
     updateChatTitle,
     fetchChatHistory,
     searchChats,
+    
+    // Message count management
+    updateChatMessageCount,
     
     // Backward compatibility
     addChatToHistory,

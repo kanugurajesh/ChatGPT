@@ -63,6 +63,10 @@ export default function ChatGPTClone() {
 
   const handleChatCreated = (chatId: string) => {
     setActiveChatId(chatId);
+    // Force the LeftNavigation to refresh its chat history
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('chatCreated', { detail: { chatId } }));
+    }
   };
 
   const handleChatSelected = (chatId: string) => {
