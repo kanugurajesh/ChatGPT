@@ -19,7 +19,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     
     console.log(`Edit request - ChatID: ${chatId}, MessageID: ${messageId}, UserID: ${userId}`);
     const body = await request.json();
-    const { content, regenerateResponse = true } = body;
+    const { content, regenerateResponse = false } = body;
 
     if (!chatId || !messageId) {
       return NextResponse.json({ error: 'Chat ID and Message ID are required' }, { status: 400 });
@@ -62,11 +62,12 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
         contextMessages: result.contextMessages
       }, { status: 200 });
     } else {
-      // Use the simple update method
-      const updatedChat = await ChatService.updateMessage({
+      // Use the simple update method that preserves subsequent messages
+      const updatedChat = await ChatService.updateMessageOnly({
         chatId,
         messageId,
         content,
+        userId
       });
 
       if (!updatedChat) {

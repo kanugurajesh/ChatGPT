@@ -295,7 +295,7 @@ export class ChatService {
   }
 
   /**
-   * Update a message in a chat
+   * Update a message in a chat (simple edit that preserves all subsequent messages)
    */
   static async updateMessage(data: UpdateMessageData): Promise<IChat | null> {
     await connectDB();
@@ -336,6 +336,72 @@ export class ChatService {
       const chat = await Chat.findOneAndUpdate(
         { 
           id: chatId,
+          'messages.id': messageId
+        },
+        { 
+          $set: { 
+            'messages.$.content': String(content),
+            'messages.$.metadata.editHistory': newEditHistory,
+            updatedAt: new Date()
+          }
+        },
+        { new: true }
+      ).exec();
+
+      return chat;
+    } catch (error) {
+      throw createError.internal('Failed to update message', error as Error);
+    }
+  }
+
+  /**
+   * Update a message in a chat with user ownership validation (simple edit that preserves all subsequent messages)
+   */
+  static async updateMessageOnly(data: UpdateMessageAndRegenerateData): Promise<IChat | null> {
+    await connectDB();
+
+    const { chatId, messageId, content, userId } = data;
+
+    // Validate input
+    if (!chatId || !messageId || content === undefined || content === null || !userId) {
+      throw new Error('Invalid message data: chatId, messageId, content, and userId are required');
+    }
+
+    try {
+      // First, get the existing chat and validate ownership
+      const existingChat = await Chat.findOne({ id: chatId, userId }).exec();
+      
+      if (!existingChat) {
+        throw new Error(`Chat with ID ${chatId} not found for user ${userId}`);
+      }
+
+      const existingMessage = existingChat.messages.find((msg: any) => msg.id === messageId);
+      
+      if (!existingMessage) {
+        throw new Error(`Message with ID ${messageId} not found in chat ${chatId}`);
+      }
+
+      // Only allow updating user messages
+      if (existingMessage.role !== 'user') {
+        throw new Error('Only user messages can be edited');
+      }
+
+      const previousContent = existingMessage.content;
+
+      // Update the message with edit history
+      const existingEditHistory = existingMessage?.metadata?.editHistory || [];
+      const newEditHistory = previousContent ? [
+        ...existingEditHistory,
+        {
+          content: previousContent,
+          timestamp: new Date()
+        }
+      ] : existingEditHistory;
+
+      const chat = await Chat.findOneAndUpdate(
+        { 
+          id: chatId,
+          userId,
           'messages.id': messageId
         },
         { 

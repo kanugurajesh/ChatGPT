@@ -7,6 +7,14 @@ import mongoose from 'mongoose';
 
 export async function POST(req: NextRequest) {
   try {
+    // Check required environment variables
+    if (!process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME || 
+        !process.env.CLOUDINARY_API_KEY || 
+        !process.env.CLOUDINARY_API_SECRET) {
+      console.error('Missing Cloudinary configuration');
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 });
+    }
+
     // Check authentication
     const { userId } = await auth();
     if (!userId) {
@@ -48,6 +56,11 @@ export async function POST(req: NextRequest) {
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
+    // Create unique public_id to avoid duplicates
+    const timestamp = Date.now();
+    const randomSuffix = Math.random().toString(36).substring(2, 8);
+    const uniquePublicId = `${file.name.split('.')[0]}_${timestamp}_${randomSuffix}`;
+
     // Upload to Cloudinary
     const cloudinaryResult = await uploadFileBuffer(
       buffer,
@@ -55,6 +68,7 @@ export async function POST(req: NextRequest) {
       file.type,
       {
         folder: 'chat-uploads',
+        public_id: uniquePublicId,
         tags: ['user-upload', 'chat-file', userId],
       }
     );
@@ -99,19 +113,22 @@ export async function POST(req: NextRequest) {
       }
     });
   } catch (error) {
+    console.error('Upload API Error:', error);
     
     if (error instanceof Error) {
       if (error.message.includes('Cloudinary')) {
-        return NextResponse.json({ error: 'Failed to upload file' }, { status: 500 });
+        console.error('Cloudinary upload failed:', error.message);
+        return NextResponse.json({ error: 'Failed to upload file to cloud storage' }, { status: 500 });
       }
       if (error.message.includes('MongoDB') || error.message.includes('database')) {
+        console.error('Database save failed:', error.message);
         return NextResponse.json({ error: 'Failed to save file metadata' }, { status: 500 });
       }
     }
     
     return NextResponse.json({ 
       error: 'Upload failed',
-      details: error instanceof Error ? error.message : 'Unknown error'
+      details: process.env.NODE_ENV === 'development' ? (error instanceof Error ? error.message : 'Unknown error') : 'Internal server error'
     }, { status: 500 });
   }
 }

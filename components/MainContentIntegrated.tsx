@@ -14,6 +14,7 @@ import { useActiveChat } from "@/hooks/use-active-chat";
 import { useChatHistory } from "@/hooks/use-chat-history";
 import "highlight.js/styles/github-dark.css";
 import { backgroundMemorySaver } from "@/lib/services/backgroundSaver";
+import { MessageEditDialog } from "./MessageEditDialog";
 
 interface FileAttachment {
   type: "file";
@@ -122,6 +123,9 @@ export function MainContent({
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
   const [isEditingSave, setIsEditingSave] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [pendingEditMessage, setPendingEditMessage] = useState<{messageId: string; content: string} | null>(null);
+  const [editMode, setEditMode] = useState<'edit-only' | 'edit-and-regenerate'>('edit-only');
   const [userId, setUserId] = useState<string>("default_user");
   // Removed memory tracking states
   const [isSavingToMongoDB, setIsSavingToMongoDB] = useState(false);
@@ -402,38 +406,15 @@ export function MainContent({
   }, [activeChat?.id, isTemporaryChat, pendingUserMessage, pendingAssistantMessage, pendingMessages, addMessage, isGeneratingImage]);
 
   // Handle file selection from dialog
-  const handleFilesSelected = async (files: File[]) => {
+  const handleFilesSelected = async (attachments: FileAttachment[], message?: string) => {
     try {
       setIsFileDialogOpen(false);
 
-      // Convert files to base64 for now - in production, you'd upload to cloud storage
-      const attachments: FileAttachment[] = await Promise.all(
-        files.map(async (file) => {
-          return new Promise<FileAttachment>((resolve) => {
-            const reader = new FileReader();
-            reader.onload = () => {
-              resolve({
-                type: "file",
-                mediaType: file.type,
-                url: reader.result as string, // This would be a cloud storage URL in production
-                name: file.name,
-                size: file.size,
-              });
-            };
-            reader.readAsDataURL(file);
-          });
-        })
-      );
-
-      // If there's text in the input, send the message with attachments
-      if (inputValue.trim()) {
-        await handleSendMessage(inputValue, attachments);
-        setInputValue("");
-      } else {
-        // Just show the attachments in the input for now
-        // In a real implementation, you might want to show a preview
-        console.log("Files selected:", attachments);
-      }
+      // Files are already uploaded to Cloudinary by the dialog, so we just use the attachments directly
+      // Send the message with attachments (with or without text message)
+      const messageText = message || inputValue.trim() || "";
+      await handleSendMessage(messageText, attachments);
+      setInputValue("");
     } catch (error) {
       console.error("Error handling file selection:", error);
     }
@@ -719,9 +700,33 @@ export function MainContent({
         }));
 
         // Add the new user message to the context
+        // Format message content to support multimodal (text + images)
+        let userMessageContent: string | Array<{ type: 'text'; text: string } | { type: 'image'; image: string }>;
+        
+        if (attachments.length > 0) {
+          // Create multimodal content with text and images
+          const contentParts: Array<{ type: 'text'; text: string } | { type: 'image'; image: string }> = [];
+          
+          // Add text part if there's content
+          const textContent = messageContent || "I've shared some files with you.";
+          contentParts.push({ type: 'text', text: textContent });
+          
+          // Add image parts for image attachments
+          attachments.forEach(attachment => {
+            if (attachment.mediaType.startsWith('image/')) {
+              contentParts.push({ type: 'image', image: attachment.url });
+            }
+          });
+          
+          userMessageContent = contentParts;
+        } else {
+          // Simple text message
+          userMessageContent = messageContent || "";
+        }
+        
         const allMessages = [
           ...contextMessages,
-          { role: "user" as const, content: messageContent }
+          { role: "user" as const, content: userMessageContent }
         ];
 
         const response = await fetch("/api/chat", {
@@ -870,10 +875,7 @@ export function MainContent({
           }
 
           // Clear streaming state AFTER saving the message
-          setStreamingContent("");
-          setCurrentStreamingId(null);
-          setIsStreamingLocal(false);
-          setStreamingMessage(null);
+          clearStreamingState();
 
           // Generate title if this is the first exchange
           if (
@@ -906,10 +908,51 @@ export function MainContent({
     }
   };
 
-  // Handle edit message
+  // Handle edit message - show dialog to choose edit mode
   const handleEditMessage = (messageId: string, content: string) => {
-    setEditingMessageId(messageId);
-    setEditContent(content);
+    const messageIndex = messages.findIndex((m) => m.id === messageId);
+    if (messageIndex === -1) return;
+    
+    // Check if there are subsequent messages
+    const hasSubsequentMessages = messageIndex < messages.length - 1;
+    
+    if (hasSubsequentMessages) {
+      // Show dialog to let user choose
+      setPendingEditMessage({ messageId, content });
+      setShowEditDialog(true);
+    } else {
+      // No subsequent messages, proceed with simple edit
+      setEditingMessageId(messageId);
+      setEditContent(content);
+    }
+  };
+
+  // Start simple edit (preserve subsequent messages)
+  const handleEditOnly = () => {
+    if (pendingEditMessage) {
+      setEditingMessageId(pendingEditMessage.messageId);
+      setEditContent(pendingEditMessage.content);
+      setEditMode('edit-only');
+      setShowEditDialog(false);
+      setPendingEditMessage(null);
+    }
+  };
+
+  // Start edit and regenerate mode
+  const handleEditAndRegenerate = () => {
+    if (pendingEditMessage) {
+      setEditingMessageId(pendingEditMessage.messageId);
+      setEditContent(pendingEditMessage.content);
+      setEditMode('edit-and-regenerate');
+      setShowEditDialog(false);
+      setPendingEditMessage(null);
+    }
+  };
+
+  // Handle dialog close
+  const handleEditDialogClose = () => {
+    setShowEditDialog(false);
+    setPendingEditMessage(null);
   };
 
   const handleSaveEdit = async (messageId: string) => {
@@ -952,17 +995,34 @@ export function MainContent({
         if (messageExistsInDB) {
           // Update existing message in database
           try {
-            const response = await fetch(`/api/messages/${messageId}`, {
+            // Use editMode to determine regeneration behavior
+            const shouldRegenerate = editMode === 'edit-and-regenerate';
+            
+            const response = await fetch(`/api/chats/${activeChat.id}/messages/${messageId}`, {
               method: "PUT",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 content: editContent.trim(),
                 editHistory: updatedMessage.metadata?.editHistory,
+                regenerateResponse: shouldRegenerate,
               }),
             });
 
             if (!response.ok) {
-              throw new Error("Failed to update message in database");
+              const errorData = await response.json();
+              throw new Error(errorData.error || "Failed to update message in database");
+            }
+
+            const result = await response.json();
+            
+            // Handle regeneration if requested
+            if (shouldRegenerate && result.shouldRegenerate && result.contextMessages) {
+              // Clear subsequent messages and start regeneration
+              setPendingMessages([]);
+              setStreamingMessage(null);
+              
+              // Start regenerating the assistant response
+              await handleRegenerateFromEdit(result.contextMessages);
             }
             
             // The activeChat hook should automatically refresh when API succeeds
@@ -992,31 +1052,31 @@ export function MainContent({
         );
       }
 
-      // If this was a user message and it triggered regeneration of subsequent messages
-      if (originalMessage.role === "user") {
+      // For temporary chats, handle regeneration locally
+      if (isTemporaryChat && originalMessage.role === "user") {
         // Remove all messages after this one and regenerate
         const messagesUpToUser = messages.slice(0, messageIndex + 1);
         // Update the user message in this slice
         messagesUpToUser[messageIndex] = updatedMessage;
-
-        // Clear subsequent messages and regenerate
-        // For database chats, this needs more sophisticated handling
-        if (isTemporaryChat) {
-          setLocalMessages(messagesUpToUser.filter(msg => msg.role === 'user'));
-        } else {
-          // Clear pending messages that come after this user message
-          setPendingMessages([]);
-          setStreamingMessage(null);
-        }
-
+        
+        setLocalMessages(messagesUpToUser.filter(msg => msg.role === 'user'));
+        
         // Regenerate assistant response
         await handleRegenerateResponse(messageId);
       }
 
       setEditingMessageId(null);
       setEditContent("");
+      setEditMode('edit-only'); // Reset to default mode
     } catch (error) {
       console.error("Error saving edit:", error);
+      setError(error instanceof Error ? error.message : 'Failed to save message edit');
+      
+      // Revert the edit state so user can try again
+      // Find the original message content again for reverting
+      const originalMessageForRevert = messages.find((m) => m.id === messageId);
+      setEditingMessageId(messageId);
+      setEditContent(originalMessageForRevert?.content || "");
     } finally {
       setIsEditingSave(false);
     }
@@ -1025,6 +1085,15 @@ export function MainContent({
   const handleCancelEdit = () => {
     setEditingMessageId(null);
     setEditContent("");
+    setEditMode('edit-only'); // Reset to default mode
+  };
+
+  // Helper function to clear all streaming state consistently
+  const clearStreamingState = () => {
+    setStreamingContent("");
+    setCurrentStreamingId(null);
+    setIsStreamingLocal(false);
+    setStreamingMessage(null);
   };
 
   const handleRegenerateResponse = async (messageId: string) => {
@@ -1062,6 +1131,166 @@ export function MainContent({
       console.error("Error regenerating response:", error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleRegenerateFromEdit = async (contextMessages: Message[]) => {
+    try {
+      setIsLoading(true);
+      setIsStreamingLocal(true);
+      
+      // Create assistant message for streaming replacement
+      const assistantId = `msg_${Date.now() + 1}_${Math.random().toString(36).substr(2, 9)}`;
+      setCurrentStreamingId(assistantId);
+      
+      // Create a streaming message placeholder
+      const streamingMsg: Message = {
+        id: assistantId,
+        content: "",
+        role: "assistant",
+        timestamp: new Date(),
+        metadata: {
+          model: selectedModel,
+          isStreaming: true,
+        },
+      };
+      setStreamingMessage(streamingMsg);
+
+      // Create a new abort controller
+      const newAbortController = new AbortController();
+      setAbortController(newAbortController);
+
+      // Make streaming request with context messages
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: contextMessages,
+          model: selectedModel,
+          chatId: activeChat?.id,
+        }),
+        signal: newAbortController.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let assistantResponse = "";
+
+      if (reader) {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value);
+            const lines = chunk.split("\n");
+
+            for (const line of lines) {
+              if (line.startsWith("data: ")) {
+                const data = line.slice(6);
+                
+                if (data === "[DONE]") {
+                  break;
+                }
+
+                try {
+                  const parsed = JSON.parse(data);
+                  
+                  if (parsed.content) {
+                    assistantResponse += parsed.content;
+                    setStreamingContent(assistantResponse);
+                    
+                    // Update the streaming message content
+                    setStreamingMessage(prev => prev ? {
+                      ...prev,
+                      content: assistantResponse
+                    } : null);
+                  }
+                } catch (parseError) {
+                  console.warn("Failed to parse streaming data:", data);
+                }
+              }
+            }
+          }
+        } finally {
+          reader.releaseLock();
+        }
+      }
+
+      // Create final assistant message and save to database
+      const finalAssistantMessage: Message = {
+        id: assistantId,
+        content: assistantResponse,
+        role: "assistant",
+        timestamp: new Date(),
+        metadata: {
+          model: selectedModel,
+          tokens: assistantResponse.length,
+        },
+      };
+
+      // Save assistant message to database
+      if (!isTemporaryChat && activeChat) {
+        try {
+          const success = await addMessage(
+            finalAssistantMessage.role,
+            finalAssistantMessage.content,
+            finalAssistantMessage.metadata,
+            false, // optimistic = false
+            finalAssistantMessage.id
+          );
+          
+          if (success) {
+            // Clear streaming state after successful save
+            clearStreamingState();
+            
+            // Emit event to update message count in sidebar
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('messageAdded', { 
+                detail: { chatId: activeChat.id, increment: 1 } 
+              }));
+            }
+          } else {
+            console.error('Failed to save regenerated assistant message to database');
+            // Keep the streaming message visible as fallback
+            setPendingMessages((prev) => [...prev, finalAssistantMessage]);
+            setError('Failed to save regenerated response. The conversation may not be saved.');
+            setFailedMessageIds((prev) => new Set([...prev, finalAssistantMessage.id]));
+            
+            // Clear streaming state
+            clearStreamingState();
+          }
+        } catch (saveError) {
+          console.error('Error saving regenerated assistant message:', saveError);
+          // Fallback: add to pending messages so user doesn't lose the response
+          setPendingMessages((prev) => [...prev, finalAssistantMessage]);
+          setError('Failed to save regenerated response. The conversation may not be saved.');
+          
+          // Clear streaming state
+          clearStreamingState();
+        }
+      } else {
+        // For temporary chats, use local messages
+        setLocalMessages((prev) => [...prev, finalAssistantMessage]);
+        
+        // Clear streaming state
+        clearStreamingState();
+      }
+      
+    } catch (error) {
+      console.error("Error regenerating from edit:", error);
+      setError(error instanceof Error ? error.message : 'Failed to regenerate response');
+      
+      // Ensure all streaming state is cleared on error
+      clearStreamingState();
+    } finally {
+      setIsLoading(false);
+      setIsStreamingLocal(false);
+      setAbortController(null);
     }
   };
 
@@ -1306,7 +1535,20 @@ export function MainContent({
       <FileUploadDialog
         isOpen={isFileDialogOpen}
         onClose={() => setIsFileDialogOpen(false)}
-        onFilesSelected={handleFilesSelected as any}
+        onFilesSelected={handleFilesSelected}
+      />
+
+      {/* Message Edit Dialog */}
+      <MessageEditDialog
+        isOpen={showEditDialog}
+        messageContent={pendingEditMessage?.content || ""}
+        hasSubsequentMessages={pendingEditMessage ? (() => {
+          const messageIndex = messages.findIndex((m) => m.id === pendingEditMessage.messageId);
+          return messageIndex !== -1 && messageIndex < messages.length - 1;
+        })() : false}
+        onClose={handleEditDialogClose}
+        onEditOnly={handleEditOnly}
+        onEditAndRegenerate={handleEditAndRegenerate}
       />
     </div>
   );
