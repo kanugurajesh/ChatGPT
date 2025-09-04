@@ -78,15 +78,36 @@ export async function GET(req: NextRequest) {
 
     } else {
       // Query both types
+      let generatedQuery = GeneratedImage.find(query);
+      let uploadedQuery = UserUploadedImage.find(query);
+      
+      if (search) {
+        // For generated images: search prompts using text search
+        generatedQuery = GeneratedImage.find({
+          ...query,
+          $text: { $search: search }
+        }).sort({ score: { $meta: 'textScore' }, generatedAt: -1 });
+        
+        // For uploaded images: search by filename
+        uploadedQuery = UserUploadedImage.find({
+          ...query,
+          $or: [
+            { fileName: new RegExp(search, 'i') },
+            { originalName: new RegExp(search, 'i') }
+          ]
+        }).sort({ uploadedAt: -1 });
+      } else {
+        generatedQuery = generatedQuery.sort({ generatedAt: -1 });
+        uploadedQuery = uploadedQuery.sort({ uploadedAt: -1 });
+      }
+      
       const [generatedImages, uploadedImages] = await Promise.all([
-        GeneratedImage.find(query)
-          .sort({ generatedAt: -1 })
+        generatedQuery
           .limit(Math.ceil(limit / 2))
           .skip(Math.floor(skip / 2))
           .lean()
           .exec(),
-        UserUploadedImage.find(query)
-          .sort({ uploadedAt: -1 })
+        uploadedQuery
           .limit(Math.ceil(limit / 2))
           .skip(Math.floor(skip / 2))
           .lean()
