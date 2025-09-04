@@ -92,7 +92,7 @@ export function AssistantMessage({
                 console.log('Rendering image div for:', message.id, generatedImages[message.id]);
                 return null;
               })()}
-              <div className="bg-gray-800 rounded-lg p-4 max-w-lg">
+              <div className="bg-gray-900 rounded-lg p-4 max-w-lg">
                 <img
                   src={generatedImages[message.id].url}
                   alt="Generated image"
