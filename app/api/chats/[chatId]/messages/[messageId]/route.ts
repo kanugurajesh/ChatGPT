@@ -94,3 +94,50 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     }, { status: 500 });
   }
 }
+
+// DELETE /api/chats/[chatId]/messages/[messageId] - Delete a message for regeneration
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
+  try {
+    const { userId } = await auth();
+    
+    if (!userId) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
+
+    const { chatId, messageId } = await params;
+
+    if (!chatId || !messageId) {
+      return NextResponse.json({ error: 'Chat ID and Message ID are required' }, { status: 400 });
+    }
+
+    // Verify chat exists and belongs to user
+    const existingChat = await ChatService.getChatById(chatId, userId);
+    if (!existingChat) {
+      return NextResponse.json({ error: 'Chat not found' }, { status: 404 });
+    }
+
+    // Delete the message from the chat
+    const updatedChat = await ChatService.deleteMessage(chatId, messageId, userId);
+    
+    if (!updatedChat) {
+      return NextResponse.json({ error: 'Message not found or failed to delete' }, { status: 404 });
+    }
+
+    return NextResponse.json({ 
+      success: true,
+      chat: updatedChat
+    }, { status: 200 });
+  } catch (error) {
+    console.error('Error deleting message:', error);
+    
+    let errorMessage = 'Failed to delete message';
+    if (error instanceof Error) {
+      errorMessage = error.message;
+    }
+    
+    return NextResponse.json({ 
+      error: errorMessage,
+      details: error instanceof Error ? error.stack : String(error)
+    }, { status: 500 });
+  }
+}

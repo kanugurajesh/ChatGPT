@@ -598,7 +598,7 @@ export function MainContent({
       setAbortController(controller);
 
       const userMessage: Message = {
-        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_user`,
+        id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 11)}_user`,
         content: messageContent,
         role: "user",
         timestamp: new Date(),
@@ -683,7 +683,7 @@ export function MainContent({
         
         // Create assistant message first to get its ID for image association
         const assistantMessage: Message = {
-          id: `msg_${Date.now() + 1}_${Math.random().toString(36).substr(2, 9)}_assistant`,
+          id: `msg_${Date.now() + 1}_${Math.random().toString(36).substring(2, 11)}_assistant`,
           content: "I've generated an image based on your request.",
           role: "assistant",
           timestamp: new Date(),
@@ -840,7 +840,7 @@ export function MainContent({
 
         if (reader) {
           // Create assistant message for streaming
-          const assistantId = `msg_${Date.now() + 1}_${Math.random().toString(36).substr(2, 9)}_assistant`;
+          const assistantId = `msg_${Date.now() + 1}_${Math.random().toString(36).substring(2, 11)}_assistant`;
           setCurrentStreamingId(assistantId);
           setIsStreamingLocal(true);
           setStreamingPosition(null); // Reset position for normal streaming (append to end)
@@ -1224,37 +1224,165 @@ export function MainContent({
     try {
       setIsLoading(true);
 
-      // Find the message that triggered the regeneration
-      const messageIndex = messages.findIndex((msg) => msg.id === messageId);
-      if (messageIndex === -1) return;
+      // Find the assistant message that triggered the regeneration
+      const assistantMessageIndex = messages.findIndex((msg) => msg.id === messageId);
+      if (assistantMessageIndex === -1) return;
 
-      // If it's a user message, get all messages up to and including this one
-      const messagesUpToUser = messages.slice(0, messageIndex + 1);
-      const lastUserMessage = messagesUpToUser[messagesUpToUser.length - 1];
+      const assistantMessage = messages[assistantMessageIndex];
+      if (assistantMessage.role !== "assistant") return;
 
-      if (lastUserMessage.role !== "user") return;
+      // Find the preceding user message
+      let userMessageIndex = -1;
+      for (let i = assistantMessageIndex - 1; i >= 0; i--) {
+        if (messages[i].role === "user") {
+          userMessageIndex = i;
+          break;
+        }
+      }
 
-      // Handle regeneration for local messages or temporary chats
+      if (userMessageIndex === -1) return; // No user message found
+
+      const userMessage = messages[userMessageIndex];
+
+      // Remove the assistant message from all states immediately for better UX
+      setLocalMessages(prev => prev.filter(msg => msg.id !== messageId));
+      setPendingMessages(prev => prev.filter(msg => msg.id !== messageId));
+      
       if (activeChat && !isTemporaryChat) {
-        // For now, handle regeneration manually since regenerateMessage is not available
-        // Remove all assistant messages after the user message
-        const filteredMessages = messagesUpToUser;
-        setLocalMessages(filteredMessages);
-        // Regenerate response
-        await handleSendMessage(lastUserMessage.content);
-      } else {
-        // Handle regeneration for local messages or temporary chats
-        // Remove all assistant messages after the user message
-        const filteredMessages = messagesUpToUser;
-        setLocalMessages(filteredMessages);
+        // For database chats, regenerate and update the existing message
+        try {
+          // Get all messages up to and including the user message for context
+          const messagesUpToUser = messages.slice(0, userMessageIndex + 1);
+          const contextMessages = messagesUpToUser.slice(-10).map((m) => ({
+            role: m.role,
+            content: m.content,
+          }));
 
-        // Regenerate response
-        await handleSendMessage(lastUserMessage.content);
+          // Make API call to regenerate directly using streaming
+          const response = await fetch("/api/chat", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              messages: contextMessages,
+              userId: user?.id || userId,
+              sessionId: "default-session",
+              model: selectedModel,
+            }),
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const reader = response.body?.getReader();
+          const decoder = new TextDecoder();
+          let assistantResponse = "";
+
+          if (reader) {
+            // Reuse the same message ID to replace the old message
+            const assistantId = messageId; // Use the same ID as the old message
+            setCurrentStreamingId(assistantId);
+            setIsStreamingLocal(true);
+            
+            // Create a streaming message placeholder
+            const streamingMsg: Message = {
+              id: assistantId,
+              content: "",
+              role: "assistant",
+              timestamp: new Date(),
+              metadata: {
+                model: selectedModel,
+                isStreaming: true,
+                regenerated: true,
+              },
+            };
+            setStreamingMessage(streamingMsg);
+
+            try {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                const chunk = decoder.decode(value);
+                const lines = chunk.split("\n");
+
+                for (const line of lines) {
+                  if (line.startsWith("data: ")) {
+                    const data = line.slice(6);
+                    
+                    if (data === "[DONE]") {
+                      break;
+                    }
+
+                    try {
+                      const parsed = JSON.parse(data);
+                      
+                      if (parsed.content) {
+                        assistantResponse += parsed.content;
+                        setStreamingContent(assistantResponse);
+                        
+                        // Update the streaming message content
+                        setStreamingMessage(prev => prev ? {
+                          ...prev,
+                          content: assistantResponse
+                        } : null);
+                      }
+                    } catch (parseError) {
+                      console.warn("Failed to parse streaming data:", data);
+                    }
+                  }
+                }
+              }
+            } finally {
+              reader.releaseLock();
+            }
+
+            // Create final assistant message
+            const finalAssistantMessage: Message = {
+              id: assistantId,
+              content: assistantResponse,
+              role: "assistant",
+              timestamp: new Date(),
+              metadata: {
+                model: selectedModel,
+                tokens: assistantResponse.length,
+                regenerated: true,
+              },
+            };
+
+            // Update the existing message in database instead of creating a new one
+            const success = await updateMessage(
+              assistantId,
+              finalAssistantMessage.content,
+              finalAssistantMessage.metadata
+            );
+            
+            if (success) {
+              // Clear streaming state
+              clearStreamingState();
+            } else {
+              // Keep in local messages if database save fails
+              setLocalMessages((prev) => [...prev, finalAssistantMessage]);
+              clearStreamingState();
+            }
+          }
+        } catch (error) {
+          console.error("Regeneration failed:", error);
+          // Fallback: just regenerate with handleSendMessage
+          await handleSendMessage(userMessage.content, userMessage.attachments || []);
+        }
+      } else {
+        // For temporary chats, use simple regeneration
+        await handleSendMessage(userMessage.content, userMessage.attachments || []);
       }
     } catch (error) {
       console.error("Error regenerating response:", error);
+      setError(error instanceof Error ? error.message : 'Failed to regenerate response');
     } finally {
       setIsLoading(false);
+      setIsStreamingLocal(false);
     }
   };
 
@@ -1273,7 +1401,7 @@ export function MainContent({
       });
       
       // Create assistant message for streaming replacement
-      const assistantId = `msg_${Date.now() + 1}_${Math.random().toString(36).substr(2, 9)}_assistant`;
+      const assistantId = `msg_${Date.now() + 1}_${Math.random().toString(36).substring(2, 11)}_assistant`;
       setCurrentStreamingId(assistantId);
       
       // Create a streaming message placeholder
@@ -1505,6 +1633,30 @@ export function MainContent({
 
   const handleModelChange = (model: string) => {
     setSelectedModel(model);
+  };
+
+  // Helper function to update a message in the database
+  const updateMessage = async (messageId: string, content: string, metadata?: any) => {
+    try {
+      if (!activeChat) return false;
+      
+      const response = await fetch(`/api/chats/${activeChat.id}/messages/${messageId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          content,
+          metadata,
+          regenerateResponse: false
+        }),
+      });
+      
+      return response.ok;
+    } catch (error) {
+      console.error("Failed to update message:", error);
+      return false;
+    }
   };
 
   // Clean up on unmount

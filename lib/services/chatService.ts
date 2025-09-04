@@ -852,4 +852,38 @@ export class ChatService {
     
     return truncated + '...';
   }
+
+  /**
+   * Delete a message from a chat
+   */
+  static async deleteMessage(chatId: string, messageId: string, userId: string): Promise<IChat | null> {
+    await connectDB();
+
+    // Validate input
+    if (!chatId || !messageId || !userId) {
+      throw createError.missingFields(['chatId', 'messageId', 'userId']);
+    }
+
+    try {
+      const chat = await Chat.findOneAndUpdate(
+        { 
+          id: chatId,
+          userId 
+        },
+        { 
+          $pull: { 
+            messages: { id: messageId } 
+          },
+          $set: {
+            updatedAt: new Date()
+          }
+        },
+        { new: true }
+      ).exec();
+
+      return chat;
+    } catch (error) {
+      throw createError.internal('Failed to delete message', error as Error);
+    }
+  }
 }
