@@ -176,6 +176,7 @@ export function MainContent({
   // Local streaming state
   const [isStreamingLocal, setIsStreamingLocal] = useState(false);
   const [streamingMessage, setStreamingMessage] = useState<Message | null>(null);
+  const [streamingPosition, setStreamingPosition] = useState<number | string | null>(null);
   
   // Track pending messages for newly created chats
   const [pendingUserMessage, setPendingUserMessage] = useState<Message | null>(null);
@@ -211,40 +212,99 @@ export function MainContent({
     })) || [];
 
     // Add local messages (for temporary chats or before DB sync)
-    const allMessages = [...dbMessages, ...localMessages, ...pendingMessages];
+    let allMessages = [...dbMessages, ...localMessages, ...pendingMessages];
     
-    // Add streaming message if it exists
-    if (streamingMessage) {
-      allMessages.push(streamingMessage);
-    }
-    
-    // Remove duplicates by ID (database messages take precedence)
-    const uniqueMessages = allMessages.reduce((acc, msg) => {
-      const existing = acc.find(m => m.id === msg.id);
-      if (!existing) {
+    // Remove duplicates by ID (database messages take precedence over local/pending messages)
+    allMessages = allMessages.reduce((acc, msg) => {
+      const existingIndex = acc.findIndex(m => m.id === msg.id);
+      if (existingIndex === -1) {
+        // No duplicate, add the message
         acc.push(msg);
+      } else {
+        // Duplicate found - prefer database messages over local/pending messages
+        const existing = acc[existingIndex];
+        const isCurrentMsgFromDB = (activeChat?.messages || []).some(dbMsg => dbMsg.id === msg.id);
+        const isExistingFromDB = (activeChat?.messages || []).some(dbMsg => dbMsg.id === existing.id);
+        
+        if (isCurrentMsgFromDB && !isExistingFromDB) {
+          // Replace local/pending message with database version
+          acc[existingIndex] = msg;
+        }
+        // Otherwise keep the existing one (database message is already there)
       }
       return acc;
     }, [] as Message[]);
     
-    // Sort by timestamp to maintain proper order
-    const sortedMessages = uniqueMessages.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+    // Sort by timestamp to maintain proper order BEFORE inserting streaming message
+    allMessages = allMessages.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+    
+    // Add streaming message at specific position if it exists and position is specified
+    if (streamingMessage) {
+      // Check if streaming message already exists in allMessages to avoid duplicates
+      const existingStreamingIndex = allMessages.findIndex(m => m.id === streamingMessage.id);
+      if (existingStreamingIndex !== -1) {
+        // Update existing streaming message instead of adding duplicate
+        allMessages[existingStreamingIndex] = streamingMessage;
+      } else {
+        // Add new streaming message
+        if (typeof streamingPosition === 'string' && streamingPosition !== 'null') {
+          // This is an edited message ID - find its position and insert after it
+          const editedMessageIndex = allMessages.findIndex(m => m.id === streamingPosition);
+          
+          if (editedMessageIndex !== -1) {
+            const insertPosition = editedMessageIndex + 1;
+            
+            console.log('Edit regeneration insertion by message ID:', {
+              editedMessageId: streamingPosition,
+              editedMessageIndex,
+              insertPosition,
+              totalMessages: allMessages.length,
+              editedMessage: allMessages[editedMessageIndex]?.content.substring(0, 50)
+            });
+            
+            allMessages.splice(insertPosition, 0, streamingMessage);
+          } else {
+            console.warn('Could not find edited message, appending to end');
+            allMessages.push(streamingMessage);
+          }
+        } else if (streamingPosition !== null && typeof streamingPosition === 'number') {
+          // Insert streaming message at the specified position
+          allMessages.splice(streamingPosition, 0, streamingMessage);
+        } else {
+          // Default behavior: add at the end (for normal streaming)
+          allMessages.push(streamingMessage);
+        }
+      }
+    }
+    
+    // Check for duplicate IDs and log warning if found
+    const messageIds = allMessages.map(m => m.id);
+    const duplicateIds = messageIds.filter((id, index) => messageIds.indexOf(id) !== index);
+    if (duplicateIds.length > 0) {
+      console.error('Duplicate message IDs found:', duplicateIds);
+      console.log('All message IDs:', messageIds);
+    }
     
     // Debug: Log final messages that will be rendered
     console.log('Final messages for rendering:', {
       activeChatId: activeChat?.id,
-      totalMessages: sortedMessages.length,
-      messages: sortedMessages.map((msg, index) => ({
+      totalMessages: allMessages.length,
+      streamingPosition,
+      streamingMessageId: streamingMessage?.id,
+      hasDuplicates: duplicateIds.length > 0,
+      duplicateIds,
+      messages: allMessages.map((msg, index) => ({
         index,
         id: msg.id,
         role: msg.role,
         content: msg.content.substring(0, 100) + (msg.content.length > 100 ? '...' : ''),
-        timestamp: msg.timestamp.toISOString()
+        timestamp: msg.timestamp.toISOString(),
+        isStreaming: msg.id === streamingMessage?.id
       }))
     });
     
-    return sortedMessages;
-  }, [activeChat?.messages, localMessages, pendingMessages, streamingMessage]);
+    return allMessages;
+  }, [activeChat?.messages, localMessages, pendingMessages, streamingMessage, streamingPosition]);
 
   // Restore generatedImages from database only when opening chat from history (after refresh)
   useEffect(() => {
@@ -500,7 +560,7 @@ export function MainContent({
     content?: string,
     attachments: FileAttachment[] = []
   ) => {
-    const messageContent = content?.trim() || inputValue.trim();
+    const messageContent = (typeof content === 'string' ? content.trim() : '') || inputValue.trim();
     if (!messageContent && attachments.length === 0) return;
 
     try {
@@ -512,7 +572,7 @@ export function MainContent({
       setAbortController(controller);
 
       const userMessage: Message = {
-        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_user`,
         content: messageContent,
         role: "user",
         timestamp: new Date(),
@@ -596,7 +656,7 @@ export function MainContent({
         
         // Create assistant message first to get its ID for image association
         const assistantMessage: Message = {
-          id: `msg_${Date.now() + 1}_${Math.random().toString(36).substr(2, 9)}`,
+          id: `msg_${Date.now() + 1}_${Math.random().toString(36).substr(2, 9)}_assistant`,
           content: "I've generated an image based on your request.",
           role: "assistant",
           timestamp: new Date(),
@@ -753,9 +813,10 @@ export function MainContent({
 
         if (reader) {
           // Create assistant message for streaming
-          const assistantId = `msg_${Date.now() + 1}_${Math.random().toString(36).substr(2, 9)}`;
+          const assistantId = `msg_${Date.now() + 1}_${Math.random().toString(36).substr(2, 9)}_assistant`;
           setCurrentStreamingId(assistantId);
           setIsStreamingLocal(true);
+          setStreamingPosition(null); // Reset position for normal streaming (append to end)
           
           // Create a streaming message placeholder
           const streamingMsg: Message = {
@@ -929,12 +990,14 @@ export function MainContent({
 
   // Start simple edit (preserve subsequent messages)
   const handleEditOnly = () => {
+    console.log('🔧 User chose: Edit Only');
     if (pendingEditMessage) {
       setEditingMessageId(pendingEditMessage.messageId);
       setEditContent(pendingEditMessage.content);
       setEditMode('edit-only');
       setShowEditDialog(false);
       setPendingEditMessage(null);
+      console.log('🔧 Edit mode set to: edit-only');
     }
   };
 
@@ -1017,15 +1080,35 @@ export function MainContent({
             
             // Handle regeneration if requested
             if (shouldRegenerate && result.shouldRegenerate && result.contextMessages) {
-              // Clear subsequent messages and start regeneration
-              setPendingMessages([]);
+              // Note: Only the immediate assistant response was removed by the API
+              // The rest of the conversation is preserved
               setStreamingMessage(null);
               
-              // Start regenerating the assistant response
-              await handleRegenerateFromEdit(result.contextMessages);
+              console.log('Starting regeneration for edit:', {
+                editedMessageId: messageId,
+                contextMessagesCount: result.contextMessages.length,
+                removedMessages: result.removedMessages?.length || 0,
+                assistantMessageToReplace: result.assistantMessageToReplace?.id
+              });
+              
+              // Start regenerating - the position calculation will be handled in handleRegenerateFromEdit
+              await handleRegenerateFromEdit(result.contextMessages, messageId);
+            } else {
+              // For simple edits, immediately update the local/pending messages to reflect the change
+              // This ensures the UI updates immediately without waiting for the hook refresh
+              const updateMessageInArray = (msgs: Message[]) => 
+                msgs.map((msg) => (msg.id === messageId ? updatedMessage : msg));
+              
+              setLocalMessages(updateMessageInArray);
+              setPendingMessages(updateMessageInArray);
             }
             
-            // The activeChat hook should automatically refresh when API succeeds
+            // Force a manual refresh of activeChat to sync with database
+            if (loadChat && activeChat?.id) {
+              setTimeout(() => {
+                loadChat(activeChat.id);
+              }, 200);
+            }
           } catch (dbError) {
             console.error("Database update failed:", dbError);
             // Fall back to local update if database fails
@@ -1094,6 +1177,7 @@ export function MainContent({
     setCurrentStreamingId(null);
     setIsStreamingLocal(false);
     setStreamingMessage(null);
+    setStreamingPosition(null); // Reset streaming position
   };
 
   const handleRegenerateResponse = async (messageId: string) => {
@@ -1134,13 +1218,22 @@ export function MainContent({
     }
   };
 
-  const handleRegenerateFromEdit = async (contextMessages: Message[]) => {
+  const handleRegenerateFromEdit = async (contextMessages: Message[], editedMessageId?: string) => {
     try {
       setIsLoading(true);
       setIsStreamingLocal(true);
       
+      // Store the edited message ID for position calculation
+      setStreamingPosition(editedMessageId as any);
+      
+      console.log('Starting edit regeneration:', {
+        editedMessageId,
+        contextMessagesLength: contextMessages.length,
+        lastContextMessage: contextMessages[contextMessages.length - 1]?.id
+      });
+      
       // Create assistant message for streaming replacement
-      const assistantId = `msg_${Date.now() + 1}_${Math.random().toString(36).substr(2, 9)}`;
+      const assistantId = `msg_${Date.now() + 1}_${Math.random().toString(36).substr(2, 9)}_assistant`;
       setCurrentStreamingId(assistantId);
       
       // Create a streaming message placeholder

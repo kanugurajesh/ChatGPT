@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Copy, Edit3, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { MessageEditHistory } from "./MessageEditHistory";
 
 interface FileAttachment {
   type: "file";
@@ -142,14 +141,6 @@ export function UserMessage({
               </div>
             )}
             <div className="whitespace-pre-wrap">{message.content}</div>
-            {/* Edit history for user messages */}
-            {message.metadata?.editHistory &&
-              message.metadata.editHistory.length > 0 && (
-                <MessageEditHistory
-                  editHistory={message.metadata.editHistory}
-                  className="mt-2"
-                />
-              )}
           </>
         )}
       </div>

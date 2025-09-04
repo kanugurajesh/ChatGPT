@@ -421,7 +421,98 @@ export class ChatService {
   }
 
   /**
-   * Update a user message and remove subsequent assistant messages for regeneration
+   * Update a user message and remove all subsequent messages for regeneration
+   */
+  static async updateMessageAndRegenerateImmediate(data: UpdateMessageAndRegenerateData): Promise<UpdateMessageAndRegenerateResult> {
+    await connectDB();
+
+    const { chatId, messageId, content, userId } = data;
+
+    // Validate input
+    if (!chatId || !messageId || content === undefined || content === null || !userId) {
+      throw new Error('Invalid message data: chatId, messageId, content, and userId are required');
+    }
+
+    try {
+      const existingChat = await Chat.findOne({ id: chatId, userId }).exec();
+      
+      if (!existingChat) {
+        throw new Error(`Chat with ID ${chatId} not found for user ${userId}`);
+      }
+
+      const messageIndex = existingChat.messages.findIndex((msg: any) => msg.id === messageId);
+      
+      if (messageIndex === -1) {
+        throw new Error(`Message with ID ${messageId} not found in chat ${chatId}`);
+      }
+
+      const existingMessage = existingChat.messages[messageIndex];
+      
+      // Only allow updating user messages
+      if (existingMessage.role !== 'user') {
+        throw new Error('Only user messages can be edited');
+      }
+
+      const previousContent = existingMessage.content;
+
+      // Capture ALL messages that will be removed (all messages after the edited user message)
+      const removedMessages = existingChat.messages.slice(messageIndex + 1);
+      const assistantMessageToReplace = removedMessages.find((msg: any) => msg.role === 'assistant') || null;
+
+      // Update the message with edit history
+      const existingEditHistory = existingMessage?.metadata?.editHistory || [];
+      const newEditHistory = previousContent ? [
+        ...existingEditHistory,
+        {
+          content: previousContent,
+          timestamp: new Date()
+        }
+      ] : existingEditHistory;
+
+      // Create updated messages array - keep only messages up to and including the edited message
+      const updatedMessages = existingChat.messages.slice(0, messageIndex + 1);
+      
+      // Update the user message
+      updatedMessages[messageIndex] = {
+        id: existingMessage.id,
+        role: existingMessage.role,
+        content: String(content),
+        timestamp: existingMessage.timestamp,
+        attachments: existingMessage.attachments || [],
+        metadata: {
+          ...existingMessage.metadata,
+          editHistory: newEditHistory
+        }
+      };
+
+      // Update the chat with the truncated messages array
+      const chat = await Chat.findOneAndUpdate(
+        { id: chatId, userId },
+        { 
+          messages: updatedMessages,
+          updatedAt: new Date()
+        },
+        { new: true }
+      ).exec();
+
+      if (!chat) {
+        throw new Error(`Failed to update chat ${chatId}`);
+      }
+
+      // Return result - ALL subsequent messages are removed
+      return {
+        chat,
+        removedMessages,
+        assistantMessageToReplace,
+        contextMessages: updatedMessages // All messages up to and including the edited one
+      };
+    } catch (error) {
+      throw createError.internal('Failed to update message and regenerate immediate response', error as Error);
+    }
+  }
+
+  /**
+   * Update a user message and remove subsequent assistant messages for regeneration (original method)
    */
   static async updateMessageAndPrepareRegenerate(data: UpdateMessageAndRegenerateData): Promise<UpdateMessageAndRegenerateResult> {
     await connectDB();

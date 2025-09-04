@@ -40,8 +40,8 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     }
 
     if (regenerateResponse) {
-      // Use the new method that removes subsequent messages for regeneration
-      const result = await ChatService.updateMessageAndPrepareRegenerate({
+      // Use the new method that only removes the immediate next assistant response
+      const result = await ChatService.updateMessageAndRegenerateImmediate({
         chatId,
         messageId,
         content,

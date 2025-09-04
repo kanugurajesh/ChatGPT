@@ -78,7 +78,7 @@ export function MessageEditDialog({
               <div className="text-left">
                 <div className="font-medium">Edit and Regenerate</div>
                 <div className="text-xs opacity-80">
-                  Remove all messages below and generate new responses
+                  Remove all following messages and regenerate response
                 </div>
               </div>
             </Button>
