@@ -81,10 +81,10 @@ export const MessageInput = forwardRef<HTMLTextAreaElement | null, MessageInputP
                 <Button
                   onClick={onStopGeneration}
                   size="icon"
-                  className="w-8 h-8 rounded-full bg-red-600 text-white hover:bg-red-700 transition-all"
+                  className="w-8 h-8 rounded-full bg-[#424242] text-white transition-all"
                   aria-label="Stop generation"
                 >
-                  <Square className="w-4 h-4" />
+                  <Square className="w-[1px] h-[1px] bg-white rounded-xs" />
                 </Button>
               ) : (
                 <Button
@@ -167,10 +167,10 @@ export const MessageInput = forwardRef<HTMLTextAreaElement | null, MessageInputP
                     <Button
                       onClick={onStopGeneration}
                       size="icon"
-                      className="w-8 h-8 rounded-full bg-red-600 text-white hover:bg-red-700 transition-all"
+                      className="w-8 h-8 rounded-full bg-[#424242] text-white hover:bg-red-700 transition-all"
                       aria-label="Stop generation"
                     >
-                      <Square className="w-4 h-4" />
+                      <Square className="w-[1px] h-[1px] bg-white rounded-xs" />
                     </Button>
                   ) : (
                     <Button
