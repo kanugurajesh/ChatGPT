@@ -471,8 +471,21 @@ export function MainContent({
       setIsFileDialogOpen(false);
 
       // Files are already uploaded to Cloudinary by the dialog, so we just use the attachments directly
+      let messageText = message || inputValue.trim() || "";
+      
+      // If no message is provided and we have image attachments, automatically describe the image
+      if (!messageText && attachments.length > 0) {
+        const imageAttachments = attachments.filter(att => att.mediaType.startsWith('image/'));
+        if (imageAttachments.length > 0) {
+          if (imageAttachments.length === 1) {
+            messageText = "Please describe this image in detail.";
+          } else {
+            messageText = `Please describe these ${imageAttachments.length} images in detail.`;
+          }
+        }
+      }
+      
       // Send the message with attachments (with or without text message)
-      const messageText = message || inputValue.trim() || "";
       await handleSendMessage(messageText, attachments);
       setInputValue("");
     } catch (error) {
@@ -603,7 +616,8 @@ export function MainContent({
           title: userMessage.content.slice(0, 50),
           initialMessage: {
             role: userMessage.role,
-            content: userMessage.content
+            content: userMessage.content,
+            attachments: userMessage.attachments
           }
         });
         

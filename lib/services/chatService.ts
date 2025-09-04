@@ -9,6 +9,13 @@ export interface CreateChatData {
   initialMessage?: {
     role: 'user' | 'assistant' | 'system';
     content: string;
+    attachments?: Array<{
+      type: 'file';
+      mediaType: string;
+      url: string;
+      name: string;
+      size: number;
+    }>;
   };
 }
 
@@ -112,6 +119,7 @@ export class ChatService {
         role: data.initialMessage.role,
         content: data.initialMessage.content,
         timestamp: new Date(),
+        attachments: data.initialMessage.attachments,
       });
     }
 

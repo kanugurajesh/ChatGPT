@@ -18,6 +18,13 @@ export interface CreateChatOptions {
   initialMessage?: {
     role: 'user' | 'assistant' | 'system'
     content: string
+    attachments?: Array<{
+      type: 'file';
+      mediaType: string;
+      url: string;
+      name: string;
+      size: number;
+    }>;
   }
 }
 
