@@ -158,11 +158,11 @@ export function AssistantMessage({
       <div className="text-white text-base leading-relaxed mb-3">
         {/* Show streaming indicator if message is being streamed */}
         {message.metadata?.isStreaming && !message.content.trim() && (
-          <div className="flex items-center space-x-2 text-gray-400">
-            <div className="animate-pulse">●</div>
-            <div className="animate-pulse" style={{ animationDelay: '0.1s' }}>●</div>
-            <div className="animate-pulse" style={{ animationDelay: '0.2s' }}>●</div>
-            <span className="ml-2">Thinking...</span>
+          <div className="flex items-center justify-start py-4">
+            <div className="relative flex items-center justify-center">
+              <div className="w-4 h-4 bg-white rounded-full animate-ping opacity-75"></div>
+              <div className="absolute w-2 h-2 bg-white rounded-full"></div>
+            </div>
           </div>
         )}
         

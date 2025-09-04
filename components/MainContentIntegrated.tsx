@@ -1080,8 +1080,7 @@ export function MainContent({
             
             // Handle regeneration if requested
             if (shouldRegenerate && result.shouldRegenerate && result.contextMessages) {
-              // Note: Only the immediate assistant response was removed by the API
-              // The rest of the conversation is preserved
+              // Clear streaming message and force immediate UI update to remove subsequent messages
               setStreamingMessage(null);
               
               console.log('Starting regeneration for edit:', {
@@ -1090,6 +1089,11 @@ export function MainContent({
                 removedMessages: result.removedMessages?.length || 0,
                 assistantMessageToReplace: result.assistantMessageToReplace?.id
               });
+              
+              // Force immediate refresh to show only messages up to the edited one
+              if (loadChat && activeChat?.id) {
+                await loadChat(activeChat.id);
+              }
               
               // Start regenerating - the position calculation will be handled in handleRegenerateFromEdit
               await handleRegenerateFromEdit(result.contextMessages, messageId);
@@ -1220,7 +1224,7 @@ export function MainContent({
 
   const handleRegenerateFromEdit = async (contextMessages: Message[], editedMessageId?: string) => {
     try {
-      setIsLoading(true);
+      // Don't set isLoading(true) to avoid "thinking" animation for edit regeneration
       setIsStreamingLocal(true);
       
       // Store the edited message ID for position calculation
@@ -1381,7 +1385,7 @@ export function MainContent({
       // Ensure all streaming state is cleared on error
       clearStreamingState();
     } finally {
-      setIsLoading(false);
+      // Don't set isLoading(false) since we never set it to true for edit regeneration
       setIsStreamingLocal(false);
       setAbortController(null);
     }

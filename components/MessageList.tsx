@@ -227,8 +227,11 @@ export function MessageList({
             })}
 
             {isLoading && !isGeneratingImage && (
-              <div className="text-gray-400 text-sm animate-pulse">
-                ChatGPT is thinking…
+              <div className="flex items-center justify-start py-4">
+                <div className="relative flex items-center justify-center">
+                  <div className="w-4 h-4 bg-white rounded-full animate-ping opacity-75"></div>
+                  <div className="absolute w-2 h-2 bg-white rounded-full"></div>
+                </div>
               </div>
             )}
 
