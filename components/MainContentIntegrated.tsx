@@ -1197,7 +1197,7 @@ export function MainContent({
         setLocalMessages(messagesUpToUser.filter(msg => msg.role === 'user'));
         
         // Regenerate assistant response
-        await handleRegenerateResponse(messageId);
+        await handleRegenerateFromEdit(messagesUpToUser, messageId);
       }
 
       setEditingMessageId(null);
