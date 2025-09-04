@@ -959,8 +959,17 @@ export function MainContent({
             }
           }
 
-          // TODO: Save to background memory without blocking UI
-          // backgroundMemorySaver.saveConversation(currentUserId, messageContent, assistantResponse);
+          // Save to background memory without blocking UI
+          if (currentUserId && messageContent && assistantResponse) {
+            backgroundMemorySaver.addMemoryTask([
+              { role: 'user', content: messageContent },
+              { role: 'assistant', content: assistantResponse }
+            ], {
+              userId: currentUserId,
+              chatId: currentChatId,
+              timestamp: new Date().toISOString()
+            });
+          }
         }
       }
     } catch (error) {
