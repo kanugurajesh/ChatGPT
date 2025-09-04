@@ -526,13 +526,22 @@ export function MainContent({
       });
 
       if (!response.ok) {
-        const errorData = await response.text();
-        console.error('Image generation API error:', {
-          status: response.status,
-          statusText: response.statusText,
-          error: errorData
-        });
-        throw new Error(`Failed to generate image: ${response.status} - ${errorData}`);
+        let errorData;
+        try {
+          errorData = await response.text();
+        } catch (parseError) {
+          errorData = 'Unable to read error response';
+        }
+        
+        const errorDetails = {
+          status: response.status || 'unknown',
+          statusText: response.statusText || 'unknown',
+          error: errorData || 'no error message',
+          url: response.url
+        };
+        
+        console.error('Image generation API error:', errorDetails);
+        throw new Error(`Failed to generate image: ${response.status || 'unknown'} - ${errorData || 'unknown error'}`);
       }
 
       const { imageUrl, cloudinaryPublicId } = await response.json();
