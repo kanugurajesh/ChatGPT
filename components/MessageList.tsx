@@ -112,6 +112,20 @@ export function MessageList({
   }, [messages]);
 
   if (messages.length === 0) {
+    // Show loading state if processing files or other loading operations
+    if (isLoading && !isTemporaryChat) {
+      return (
+        <div className="flex flex-col items-center justify-center h-full">
+          <div className="flex items-center space-x-2 text-gray-400">
+            <div className="w-2 h-2 bg-gray-400 rounded-full animate-pulse"></div>
+            <div className="w-2 h-2 bg-gray-400 rounded-full animate-pulse delay-75"></div>
+            <div className="w-2 h-2 bg-gray-400 rounded-full animate-pulse delay-150"></div>
+          </div>
+          <div className="mt-4 text-gray-400 text-sm">Processing...</div>
+        </div>
+      );
+    }
+    
     // Empty state with input
     return (
       <div

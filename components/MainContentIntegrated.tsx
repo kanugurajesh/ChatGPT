@@ -130,6 +130,7 @@ export function MainContent({
   // Removed memory tracking states
   const [isSavingToMongoDB, setIsSavingToMongoDB] = useState(false);
   const [isFileDialogOpen, setIsFileDialogOpen] = useState(false);
+  const [isProcessingFiles, setIsProcessingFiles] = useState(false);
   const [generatedImages, setGeneratedImages] = useState<{
     [messageId: string]: { url: string; publicId: string };
   }>({});
@@ -469,6 +470,7 @@ export function MainContent({
   const handleFilesSelected = async (attachments: FileAttachment[], message?: string) => {
     try {
       setIsFileDialogOpen(false);
+      setIsProcessingFiles(true);
 
       // Files are already uploaded to Cloudinary by the dialog, so we just use the attachments directly
       let messageText = message || inputValue.trim() || "";
@@ -490,6 +492,8 @@ export function MainContent({
       setInputValue("");
     } catch (error) {
       console.error("Error handling file selection:", error);
+    } finally {
+      setIsProcessingFiles(false);
     }
   };
 
@@ -1625,7 +1629,7 @@ export function MainContent({
           {/* Chat area */}
           <ChatArea
             messages={messages}
-            isLoading={isLoading}
+            isLoading={isLoading || isProcessingFiles}
             isStreaming={isStreamingLocal}
             isGeneratingImage={isGeneratingImage}
             isTemporaryChat={isTemporaryChat}

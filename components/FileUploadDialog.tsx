@@ -237,7 +237,7 @@ export function FileUploadDialog({ isOpen, onClose, onFilesSelected, chatId, mes
             <Button
               variant="outline"
               onClick={onClose}
-              className="text-gray-300 border-gray-600 hover:bg-[#404040]"
+              className="text-black border-gray-600 hover:bg-[#404040] hover:text-white"
             >
               Cancel
             </Button>
