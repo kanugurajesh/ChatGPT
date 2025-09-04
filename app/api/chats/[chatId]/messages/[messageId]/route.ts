@@ -19,7 +19,7 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     
     console.log(`Edit request - ChatID: ${chatId}, MessageID: ${messageId}, UserID: ${userId}`);
     const body = await request.json();
-    const { content, regenerateResponse = false } = body;
+    const { content, regenerateResponse = false, isAssistantMessage = false } = body;
 
     if (!chatId || !messageId) {
       return NextResponse.json({ error: 'Chat ID and Message ID are required' }, { status: 400 });
@@ -37,6 +37,34 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
     const existingChat = await ChatService.getChatById(chatId, userId);
     if (!existingChat) {
       return NextResponse.json({ error: 'Chat not found' }, { status: 404 });
+    }
+
+    // Handle assistant message update (for regeneration)
+    if (isAssistantMessage) {
+      try {
+        const updatedChat = await ChatService.updateAssistantMessage(
+          chatId,
+          messageId,
+          content,
+          body.metadata,
+          userId
+        );
+
+        if (!updatedChat) {
+          return NextResponse.json({ error: 'Assistant message not found or failed to update' }, { status: 404 });
+        }
+
+        return NextResponse.json({ 
+          chat: updatedChat,
+          success: true
+        }, { status: 200 });
+      } catch (error) {
+        console.error('Error updating assistant message:', error);
+        return NextResponse.json({ 
+          error: 'Failed to update assistant message',
+          details: error instanceof Error ? error.message : String(error)
+        }, { status: 500 });
+      }
     }
 
     if (regenerateResponse) {

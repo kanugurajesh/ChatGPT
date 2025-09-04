@@ -854,6 +854,41 @@ export class ChatService {
   }
 
   /**
+   * Update an assistant message (for regeneration)
+   */
+  static async updateAssistantMessage(chatId: string, messageId: string, content: string, metadata?: any, userId?: string): Promise<IChat | null> {
+    await connectDB();
+
+    // Validate input
+    if (!chatId || !messageId || content === undefined || content === null) {
+      throw createError.missingFields(['chatId', 'messageId', 'content']);
+    }
+
+    try {
+      const chat = await Chat.findOneAndUpdate(
+        { 
+          id: chatId,
+          ...(userId && { userId }), // Only include userId filter if provided
+          'messages.id': messageId,
+          'messages.role': 'assistant' // Ensure we're updating an assistant message
+        },
+        { 
+          $set: { 
+            'messages.$.content': String(content),
+            ...(metadata && { 'messages.$.metadata': metadata }),
+            updatedAt: new Date()
+          }
+        },
+        { new: true }
+      ).exec();
+
+      return chat;
+    } catch (error) {
+      throw createError.internal('Failed to update assistant message', error as Error);
+    }
+  }
+
+  /**
    * Delete a message from a chat
    */
   static async deleteMessage(chatId: string, messageId: string, userId: string): Promise<IChat | null> {

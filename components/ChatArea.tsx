@@ -55,7 +55,6 @@ interface ChatAreaProps {
   onEditContentChange: (content: string) => void;
   onLikeMessage: (messageId: string) => void;
   onDislikeMessage: (messageId: string) => void;
-  onRegenerateResponse: (messageId: string) => void;
   onSetImage: (image: string | null) => void;
   onInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
@@ -92,7 +91,6 @@ export function ChatArea(props: ChatAreaProps) {
       onEditContentChange={props.onEditContentChange}
       onLikeMessage={props.onLikeMessage}
       onDislikeMessage={props.onDislikeMessage}
-      onRegenerateResponse={props.onRegenerateResponse}
       onSetImage={props.onSetImage}
       onInputChange={props.onInputChange}
       onKeyDown={props.onKeyDown}

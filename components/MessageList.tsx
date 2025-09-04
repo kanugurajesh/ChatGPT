@@ -61,7 +61,6 @@ interface MessageListProps {
   onEditContentChange: (content: string) => void;
   onLikeMessage: (messageId: string) => void;
   onDislikeMessage: (messageId: string) => void;
-  onRegenerateResponse: (messageId: string) => void;
   onSetImage: (image: string | null) => void;
   onInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
@@ -96,7 +95,6 @@ export function MessageList({
   onEditContentChange,
   onLikeMessage,
   onDislikeMessage,
-  onRegenerateResponse,
   onSetImage,
   onInputChange,
   onKeyDown,
@@ -232,7 +230,6 @@ export function MessageList({
                       onCopyToClipboard={onCopyToClipboard}
                       onLikeMessage={onLikeMessage}
                       onDislikeMessage={onDislikeMessage}
-                      onRegenerateResponse={onRegenerateResponse}
                       onSetImage={onSetImage}
                     />
                   )}

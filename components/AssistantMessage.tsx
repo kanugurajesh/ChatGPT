@@ -3,7 +3,6 @@
 import { Button } from "@/components/ui/button";
 import {
   Copy,
-  RefreshCw,
   Share,
   ThumbsUp,
   ThumbsDown,
@@ -47,7 +46,6 @@ interface AssistantMessageProps {
   onCopyToClipboard: (text: string, messageId: string) => void;
   onLikeMessage: (messageId: string) => void;
   onDislikeMessage: (messageId: string) => void;
-  onRegenerateResponse: (messageId: string) => void;
   onSetImage: (image: string | null) => void;
 }
 
@@ -63,7 +61,6 @@ export function AssistantMessage({
   onCopyToClipboard,
   onLikeMessage,
   onDislikeMessage,
-  onRegenerateResponse,
   onSetImage,
 }: AssistantMessageProps) {
   // Debug logs
@@ -283,13 +280,6 @@ export function AssistantMessage({
                 dislikedMessages.has(message.id) && "animate-bounce"
               )}
             />
-          </Button>
-          <Button
-            onClick={() => onRegenerateResponse(message.id)}
-            className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
-            size="icon"
-          >
-            <RefreshCw className="w-4 h-4" />
           </Button>
           <Button
             className="h-8 w-8 p-0 bg-transparent hover:bg-gray-700 text-gray-400 hover:text-white rounded-lg"
