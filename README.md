@@ -1,3 +1,12 @@
+
+<img width="1920" height="1080" alt="Screenshot 2025-08-27 091247" src="https://github.com/user-attachments/assets/d9062916-1e96-4866-a6da-8b4f8d8031d4" />
+
+<img width="1860" height="1079" alt="Screenshot 2025-08-26 113458" src="https://github.com/user-attachments/assets/db5045f3-9d79-4364-a07d-6991f37b2224" />
+
+<img width="1919" height="870" alt="Screenshot 2025-09-04 214139" src="https://github.com/user-attachments/assets/1bf9687a-8159-4e40-9a25-fe99e7ef9162" />
+
+<img width="1920" height="1080" alt="Screenshot 2025-09-04 214604" src="https://github.com/user-attachments/assets/f97749ff-7edd-4831-916e-b73854f0052e" />
+
 # ChatGPT
 
 A modern, full-featured ChatGPT clone built with Next.js 15, featuring real-time AI chat with Google Gemini, persistent memory management, image generation, and multimodal capabilities. Designed for both authenticated and anonymous users with enterprise-grade performance and security.
