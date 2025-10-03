@@ -11,6 +11,7 @@
 
 A modern, full-featured ChatGPT clone built with Next.js 15, featuring real-time AI chat with Google Gemini, persistent memory management, image generation, and multimodal capabilities. Designed for both authenticated and anonymous users with enterprise-grade performance and security.
 
+
 ## 🌟 Highlights
 
 - **🧠 Intelligent Memory**: Persistent conversation context using Mem0 AI across sessions
